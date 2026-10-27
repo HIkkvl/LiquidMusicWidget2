@@ -15,6 +15,18 @@ internal sealed class BrowserController : IAsyncDisposable
     private IBrowser? browser;
     private readonly Dictionary<string,IPage> selected=new();
     private readonly string script=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"BrowserScripts.js"));
+    private readonly YandexMusicRegion yandex;
+    public BrowserController(Settings? settings=null)=>yandex=new(settings??new Settings());
+    public void SetYandexDomain(string domain)
+    {
+        yandex.Select(domain);selected.Remove("yandex");
+    }
+    private bool AcceptsPage(string url,string service)=>MatchesService(url,service)&&(service!="yandex"||yandex.Accepts(url));
+    private IPage RememberPage(IPage page,string service)
+    {
+        if(service=="yandex")yandex.Remember(page.Url);
+        selected[service]=page;return page;
+    }
 
     public static bool MatchesService(string url,string service)
     {
@@ -71,24 +83,28 @@ internal sealed class BrowserController : IAsyncDisposable
     private async Task<IPage> PageAsync(string service,bool create)
     {
         await ConnectAsync(create);
-        if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed&&MatchesService(previous.Url,service))return previous;
-        var candidates=browser!.Contexts.SelectMany(context=>context.Pages).Where(page=>MatchesService(page.Url,service)).ToList();
+        if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed&&MatchesService(previous.Url,service))return RememberPage(previous,service);
+        var candidates=browser!.Contexts.SelectMany(context=>context.Pages).Where(page=>AcceptsPage(page.Url,service)).ToList();
         // Reuse a playing music tab before considering a new tab. Never inspect
         // unrelated pages, profile cookies or account storage.
         foreach(var candidate in candidates)
         {
-            try {if(await candidate.EvaluateAsync<bool>("() => [...document.querySelectorAll('audio,video')].some(m=>!m.paused)")){selected[service]=candidate;return candidate;}}catch{ }
+            try {if(await candidate.EvaluateAsync<bool>("() => [...document.querySelectorAll('audio,video')].some(m=>!m.paused)"))return RememberPage(candidate,service);}catch{ }
         }
         var page=candidates.FirstOrDefault();
         if(page==null)
         {
             if(!create)throw new InvalidOperationException("Музыкальная вкладка будет открыта при первой команде.");
-            var url=service=="youtube"?"https://www.youtube.com/":"https://music.yandex.kz/";
+            var url=service=="youtube"?"https://www.youtube.com/":yandex.Origin;
+            var existingPages=browser.Contexts.SelectMany(context=>context.Pages).ToHashSet();
             var session=await browser.NewBrowserCDPSessionAsync();
             try{await session.SendAsync("Target.createTarget",new Dictionary<string,object>{{"url",url},{"background",true}});}finally{await session.DetachAsync();}
             for(var i=0;i<60;i++)
             {
-                page=browser.Contexts.SelectMany(c=>c.Pages).FirstOrDefault(p=>MatchesService(p.Url,service));
+                // A site may redirect between its regional domains. Accept the
+                // newly opened tab after a redirect, without reusing an older
+                // tab belonging to a different explicit region.
+                page=browser.Contexts.SelectMany(c=>c.Pages).FirstOrDefault(p=>!existingPages.Contains(p)&&MatchesService(p.Url,service));
                 if(page!=null)break;
                 await Task.Delay(100);
             }
@@ -96,12 +112,12 @@ internal sealed class BrowserController : IAsyncDisposable
             await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded,new(){Timeout=20000});
         }
         page.SetDefaultTimeout(12000);
-        selected[service]=page;
-        return page;
+        return RememberPage(page,service);
     }
     private async Task<JsonObject> ReadAsync(IPage page,string service)
     {
         if(!MatchesService(page.Url,service))throw new InvalidOperationException("Музыкальная вкладка перешла на другой сайт. Завершите вход в браузере и повторите.");
+        if(service=="yandex")yandex.Remember(page.Url);
         var result=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service});
         return JsonNode.Parse(result.GetRawText())?.AsObject()??new();
     }

@@ -69,6 +69,12 @@ internal static class SelfTests
             await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=fixture}));
             await page.GotoAsync("https://music.yandex.kz/search?text=Династия");
             var script=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"BrowserScripts.js"));
+            foreach(var domain in new[]{"music.yandex.ru","music.yandex.kz","music.yandex.com"})
+            {
+                await page.GotoAsync("https://"+domain+"/search?text=Династия");
+                Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"}),"Regional track controls: "+domain);
+            }
+            passed.Add("Track controls support ru, kz and com regional domains");
             var target=await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"});
             Check(target,"Real Yandex track card play target");
             Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>!!el.closest('[class*=EntityCard_root]').querySelector('a[href*=\"/track/\"]')"),"Artist exclusion");

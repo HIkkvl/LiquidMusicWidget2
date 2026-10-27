@@ -11,7 +11,7 @@ internal sealed class MainForm : Form
 {
     private readonly Settings settings=new();
     private readonly WebView2 view=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(11,22,40)};
-    private readonly BrowserController browser=new();
+    private readonly BrowserController browser;
     private readonly VoiceAssistant voice;
     private readonly NotifyIcon tray=new();
     private readonly System.Windows.Forms.Timer poll=new(){Interval=1200};
@@ -33,6 +33,7 @@ internal sealed class MainForm : Form
     protected override bool ShowWithoutActivation => true;
     public MainForm(bool hidden,bool test=false)
     {
+        browser=new(settings);
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -191,6 +192,9 @@ internal sealed class MainForm : Form
             case "set_service":
                 var service=Arg(0)!.GetValue<string>();if(service is not("yandex" or "youtube"))throw new ArgumentException("Неизвестный сервис");
                 settings.Value["service"]=service;settings.Save();snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
+            case "set_yandex_domain":
+                browser.SetYandexDomain(Arg(0)!.GetValue<string>());
+                snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
             case "set_quality":
                 var quality=Arg(0)!.GetValue<string>();if(quality is not("high" or "medium" or "low"))throw new ArgumentException("Неизвестное качество");
                 settings.Value["quality"]=quality;settings.Save();break;

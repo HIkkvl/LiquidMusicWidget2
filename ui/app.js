@@ -129,7 +129,22 @@ function renderBrowserSettings() {
     if(!result.ok&&!result.cancelled)showSettingsError(result.error);
     else if(result.ok&&result.browser?.connected){$('settings-error').hidden=true;toast('Браузер подключён. Настройка сохранена');}
   });
-  section.append(title,state,note,persist,button);$('shortcut-rows').append(section);
+  const regionLabel=document.createElement('label');regionLabel.textContent='Домен Яндекс Музыки';
+  const region=document.createElement('select');region.id='yandex-domain';
+  for(const [value,label] of [['auto','Авто — открытая вкладка / последний домен'],['music.yandex.ru','music.yandex.ru'],['music.yandex.kz','music.yandex.kz'],['music.yandex.com','music.yandex.com']]) {
+    const option=document.createElement('option');option.value=value;option.textContent=label;region.append(option);
+  }
+  region.value=configuration.yandex_domain||'auto';
+  region.addEventListener('change',async()=>{
+    region.disabled=true;
+    const result=await invoke('set_yandex_domain',region.value);
+    region.disabled=false;
+    if(result.ok){configuration.yandex_domain=region.value;toast('Домен Яндекс Музыки сохранён');}
+    else {region.value=configuration.yandex_domain||'auto';showSettingsError(result.error);}
+  });
+  regionLabel.append(region);
+  const regionNote=document.createElement('p');regionNote.textContent='Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
+  section.append(title,state,note,regionLabel,regionNote,persist,button);$('shortcut-rows').append(section);
   renderBrowserConnection(configuration.browser);
 }
 function renderBrowserConnection(browser) {
@@ -181,7 +196,7 @@ function switchService(name){
   document.body.dataset.service=name;
   configuration.service=name;
   invoke('set_service',name);
-  toast(name==='youtube'?'YouTube: откройте вкладку YouTube / YouTube Music':'Яндекс Музыка: откройте music.yandex.ru');
+  toast(name==='youtube'?'YouTube: откройте вкладку YouTube / YouTube Music':'Яндекс Музыка: откройте свою вкладку .ru, .kz или .com');
 }
 async function saveShortcuts() {
   const button=$('save-shortcuts');button.disabled=true;

@@ -26,6 +26,7 @@ const {pathToFileURL} = require('node:url');
        return {ok:true,browser:window.browserStatus};
      },
      save_settings:async(b)=>{window.saved=b;return {ok:true};},
+     set_yandex_domain:async(domain)=>{window.yandexDomain=domain;return {ok:true};},
      hide:async()=>({ok:true}),quit:async()=>({ok:true}),set_topmost:async()=>({ok:true}),set_startup:async()=>({ok:true})
    }};
  });
@@ -53,6 +54,11 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#settings-button').click();
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
+ assert.equal(await page.locator('#yandex-domain').inputValue(),'auto');
+ await page.locator('#yandex-domain').selectOption('music.yandex.ru');
+ await page.waitForFunction(()=>window.yandexDomain==='music.yandex.ru');
+ await page.locator('#yandex-domain').selectOption('music.yandex.kz');
+ await page.waitForFunction(()=>window.yandexDomain==='music.yandex.kz');
  assert.equal(await page.locator('#connect-browser').textContent(),'Подключить браузер');
  await page.evaluate(()=>window.cancelSetup=true);
  await page.locator('#connect-browser').click();
@@ -72,6 +78,7 @@ const {pathToFileURL} = require('node:url');
  assert.equal(await page.locator('#settings-dialog').evaluate(el=>el.open),false);
  await page.locator('#keys-button').click();
  assert.equal(await page.locator('#browser-status').textContent(),'Подключено','Connected status survives reopening settings');
+ assert.equal(await page.locator('#yandex-domain').inputValue(),'music.yandex.kz','Regional choice survives reopening settings');
  await page.screenshot({path:'tests/settings-preview.png'});
  await page.keyboard.press('Escape');
  await page.setViewportSize({width:350,height:600});

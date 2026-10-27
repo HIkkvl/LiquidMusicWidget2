@@ -15,6 +15,7 @@ internal static class BrowserConnectionTests
     {
         try
         {
+            YandexMusicRegionTests.Run();
             var yandex=BrowserSetup.Identify(@"C:\Test\browser.exe");
             var original=new BrowserConnection(yandex.Executable,yandex.Name,54321,true,true);
             var attempts=new List<BrowserConnection>();
@@ -53,7 +54,7 @@ internal static class BrowserConnectionTests
             await CheckEndpointAsync("localhost",true);
             await CheckEndpointAsync("192.0.2.1",false);
             await CheckEndpointAsync("127.0.0.1",false,true);
-            Console.WriteLine("PASS: Yandex fallback, persistence, legacy settings, reuse, error propagation and local endpoint validation");
+            Console.WriteLine("PASS: Yandex ru/kz/com selection and persistence; profile fallback, legacy settings, reuse, error propagation and local endpoint validation");
             return 0;
         }
         catch(Exception error){Console.Error.WriteLine(error);AppPaths.Log(error);return 1;}
