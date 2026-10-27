@@ -313,6 +313,7 @@ internal sealed class MainForm : Form
         var status=browser.Status();
         if(status["connected"]?.GetValue<bool>()==true&&(!updateShortcuts||status["shortcuts_updated"]?.GetValue<bool>()==true))return true;
         var note=info.Name+" — браузер по умолчанию Windows. Настройка выполняется один раз и сохраняется. Если потребуется перезапуск браузера, вкладки будут восстановлены; сначала сохраните ввод на страницах. Локальный канал даёт приложению доступ к вкладкам.";
+        if(info.ProcessName=="browser")note+=" Если обычный профиль недоступен для управления, откроется отдельный музыкальный профиль. В нём потребуется войти в аккаунт; для него создаётся отдельный ярлык Liquid Music.";
         if(updateShortcuts)note+=" Ярлыки этого браузера будут обновлены для постоянного подключения; перед изменением сохраняются резервные копии.";
         if(MessageBox.Show(this,note+" Продолжить?","Подключить браузер",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return false;
         await browser.ConfigureAsync(updateShortcuts);await PollAsync();return true;

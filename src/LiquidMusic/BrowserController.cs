@@ -30,7 +30,7 @@ internal sealed class BrowserController : IAsyncDisposable
         var state=!info.Supported?"unsupported":BrowserSetup.Configuring?"connecting":connected?"connected":saved!=null?"saved":"not_configured";
         var message=state switch
         {
-            "unsupported"=>info.Error,"connecting"=>"Подключение…","connected"=>"Подключено",
+            "unsupported"=>info.Error,"connecting"=>"Подключение…","connected"=>saved?.UserDataDir!=null?"Подключено — отдельный профиль. При первом запуске войдите в музыкальный аккаунт.":"Подключено",
             "saved"=>"Настройка сохранена — подключение восстановится автоматически",
             _=>"Подключите браузер один раз"
         };
@@ -59,7 +59,7 @@ internal sealed class BrowserController : IAsyncDisposable
         }
         var saved=BrowserSetup.Read(info);
         if(saved==null)throw new InvalidOperationException("Нужно один раз подключить "+info.Name+": настройки → «Подключить браузер».");
-        if(launch&&!BrowserSetup.IsRunning(info))await BrowserSetup.LaunchAsync(info,saved,true);
+        if(launch&&(saved.UserDataDir!=null||!BrowserSetup.IsRunning(info)))await BrowserSetup.LaunchAsync(info,saved,true);
         playwright ??= await Playwright.CreateAsync();
         try
         {
