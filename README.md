@@ -38,11 +38,19 @@ Firefox не поддерживается. Некоторые версии Chrom
 
 ## Сборка
 
-1. Установите .NET 10 SDK.
-2. Скачайте [русскую модель Vosk](https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip)
-   и распакуйте в `models/vosk-model-small-ru-0.22`.
-3. Выполните `powershell -ExecutionPolicy Bypass -File BUILD_NATIVE.ps1`.
-4. Запустите `native\LiquidMusic.exe`.
+Для проверки своих изменений после клонирования через GitHub Desktop:
+
+1. Установите [.NET 10 SDK для Windows x64](https://dotnet.microsoft.com/download/dotnet/10.0).
+   Нужен именно **SDK**; одного Runtime недостаточно.
+2. В GitHub Desktop выберите нужную ветку и откройте **Repository → Show in Explorer**.
+3. Закройте работающий виджет через меню в трее и запустите `DEV_RUN.bat`.
+   Он соберёт текущие исходники, при необходимости скачает русскую модель Vosk
+   и запустит `native\LiquidMusic.exe`. При первой сборке нужен интернет.
+4. После каждого изменения кода снова запускайте `DEV_RUN.bat`.
+   `START_WIDGET.vbs` запускает последнюю сборку без пересборки.
+
+Сборка без запуска: `powershell -NoProfile -ExecutionPolicy Bypass -File BUILD_NATIVE.ps1`.
+Совместимый браузер Chromium и Microsoft Edge WebView2 Runtime нужны и при разработке.
 
 Для создания чистого ZIP выполните `PACKAGE_PORTABLE.ps1`.
 Исходники не содержат модели, зависимостей сборки, личных настроек,
