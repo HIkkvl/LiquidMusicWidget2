@@ -27,6 +27,9 @@ const {pathToFileURL} = require('node:url');
      },
      save_settings:async(b)=>{window.saved=b;return {ok:true};},
      set_yandex_domain:async(domain)=>{window.yandexDomain=domain;return {ok:true};},
+     save_deepseek:async(key,enabled)=>{window.assistantKey=key;window.assistantEnabled=enabled;return {ok:true,deepseek:{enabled,configured:true,model:'deepseek-flash'}};},
+     test_deepseek:async()=>({ok:true,deepseek:{enabled:true,configured:true,model:'deepseek-flash'}}),
+     delete_deepseek:async()=>({ok:true,deepseek:{enabled:false,configured:false,model:'deepseek-flash'}}),
      hide:async()=>({ok:true}),quit:async()=>({ok:true}),set_topmost:async()=>({ok:true}),set_startup:async()=>({ok:true})
    }};
  });
@@ -54,6 +57,18 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#settings-button').click();
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
+ assert.equal(await page.locator('#deepseek-key').getAttribute('type'),'password');
+ await page.locator('#deepseek-key').scrollIntoViewIfNeeded();
+ await page.screenshot({path:'tests/assistant-preview.png'});
+ await page.locator('#deepseek-key').fill('test-key-not-a-real-secret');
+ await page.locator('#deepseek-enabled').check();
+ await page.locator('#save-deepseek').click();
+ await page.waitForFunction(()=>window.assistantEnabled===true);
+ assert.equal(await page.locator('#deepseek-key').inputValue(),'','Saved key is cleared from DOM');
+ await page.locator('#test-deepseek').click();
+ await page.waitForFunction(()=>document.getElementById('deepseek-status').textContent.includes('проверено'));
+ await page.locator('#delete-deepseek').click();
+ await page.waitForFunction(()=>document.getElementById('deepseek-status').textContent==='Ключ не настроен');
  assert.equal(await page.locator('#yandex-domain').inputValue(),'auto');
  await page.locator('#yandex-domain').selectOption('music.yandex.ru');
  await page.waitForFunction(()=>window.yandexDomain==='music.yandex.ru');

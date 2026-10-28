@@ -89,7 +89,7 @@ function showSettingsError(message) {
 }
 function renderShortcutRows() {
   $('shortcut-rows').replaceChildren();
-  if(configuration.backend==='csharp')renderBrowserSettings();
+  if(configuration.backend==='csharp'){renderBrowserSettings();renderAssistantSettings();}
   renderOverlaySettings();
   Object.entries(configuration.actions).forEach(([action,label])=>{
     const row=document.createElement('div');row.className='shortcut-row';
@@ -111,6 +111,33 @@ function renderShortcutRows() {
   });
 }
 let browserSetupPending=false;
+function renderAssistantSettings() {
+  const section=document.createElement('section');section.className='overlay-options';
+  const title=document.createElement('h3');title.textContent='Умный помощник · DeepSeek';
+  const note=document.createElement('p');note.textContent='Понимает свободные фразы и уточнения, учитывает текущий трек. Текст сложных запросов, данные плеера и короткая история отправляются в DeepSeek; API платный. Голос распознаётся локально. Простые команды работают без интернета. Ответы показаны текстом.';
+  const enabledLabel=document.createElement('label');enabledLabel.className='overlay-enabled';
+  const enabled=document.createElement('input');enabled.type='checkbox';enabled.id='deepseek-enabled';enabled.checked=!!configuration.deepseek?.enabled;
+  enabledLabel.append(enabled,document.createTextNode('Использовать DeepSeek для свободных фраз'));
+  const key=document.createElement('input');key.type='password';key.id='deepseek-key';key.autocomplete='off';key.setAttribute('aria-label','API-ключ DeepSeek');key.placeholder=configuration.deepseek?.configured?'Ключ сохранён — введите новый для замены':'API-ключ DeepSeek';
+  const status=document.createElement('p');status.id='deepseek-status';status.setAttribute('role','status');
+  const save=document.createElement('button');save.type='button';save.id='save-deepseek';save.textContent='Сохранить помощника';
+  const test=document.createElement('button');test.type='button';test.id='test-deepseek';test.textContent='Проверить подключение';
+  const remove=document.createElement('button');remove.type='button';remove.id='delete-deepseek';remove.textContent='Удалить ключ';
+  function paint(){const s=configuration.deepseek||{};enabled.checked=!!s.enabled;status.textContent=s.configured?(s.enabled?'Включён · ':'Ключ сохранён · ')+(s.model||'DeepSeek'):'Ключ не настроен';test.disabled=remove.disabled=!s.configured;}
+  async function update(method,...args){
+    save.disabled=test.disabled=remove.disabled=enabled.disabled=true;
+    try {
+      const result=await invoke(method,...args);
+      if(result.deepseek)configuration.deepseek=result.deepseek;
+      if(result.ok){key.value='';key.placeholder=configuration.deepseek?.configured?'Ключ сохранён — введите новый для замены':'API-ключ DeepSeek';paint();if(method==='test_deepseek')status.textContent='Подключение проверено · '+configuration.deepseek.model;}
+      else {paint();showSettingsError(result.error);}
+    } finally {save.disabled=enabled.disabled=false;test.disabled=remove.disabled=!configuration.deepseek?.configured;}
+  }
+  save.addEventListener('click',()=>update('save_deepseek',key.value,enabled.checked));
+  test.addEventListener('click',()=>update('test_deepseek'));
+  remove.addEventListener('click',()=>update('delete_deepseek'));
+  section.append(title,note,enabledLabel,key,status,save,test,remove);$('shortcut-rows').append(section);paint();
+}
 function renderBrowserSettings() {
   const section=document.createElement('section');section.className='overlay-options';
   const title=document.createElement('h3');title.id='browser-name';

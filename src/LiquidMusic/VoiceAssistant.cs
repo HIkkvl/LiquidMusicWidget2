@@ -7,7 +7,7 @@ using Vosk;
 
 namespace LiquidMusic;
 
-internal readonly record struct VoiceCommand(string Action, string? Query);
+internal readonly record struct VoiceCommand(string Action, string? Query,double? Volume=null,string? Reply=null);
 internal static class VoiceParser
 {
     public static VoiceCommand Parse(string text)
@@ -35,7 +35,7 @@ internal static class VoiceParser
     }
 }
 
-internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<CancellationToken,Task<string>>? recognitionOverride=null,Func<VoiceCue,Task>? cueOverride=null) : IDisposable
+internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<CancellationToken,Task<string>>? recognitionOverride=null,Func<VoiceCue,Task>? cueOverride=null,Func<string,CancellationToken,Task<VoiceCommand>>? resolve=null) : IDisposable
 {
     private readonly object sync=new();
     private JsonObject state=new(){["phase"]="idle",["message"]="Скажите: «включи трек Династия»",["text"]=""};
@@ -72,12 +72,12 @@ internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<Cancel
                 }
                 token.ThrowIfCancellationRequested();
                 Set("recognizing","Распознаю команду…",text);
-                var command=VoiceParser.Parse(text);
+                var command=resolve!=null?await resolve(text,token):VoiceParser.Parse(text);
                 token.ThrowIfCancellationRequested();
                 Set("waiting",command.Query!=null?"Ищу и включаю: "+command.Query:"Выполняю команду…");
                 await (cueOverride ?? VoiceSounds.PlayAsync)(VoiceCue.Accepted);
-                await execute(command);
-                Set("done","Воспроизведение подтверждено");
+                if(command.Action!="reply")await execute(command);
+                Set("done",command.Reply??"Команда выполнена");
             }
             catch(OperationCanceledException){Set("idle","Запись отменена");}
             catch(Exception error){AppPaths.Log(error);Set("error",error.Message);}

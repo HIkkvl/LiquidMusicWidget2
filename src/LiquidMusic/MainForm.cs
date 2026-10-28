@@ -12,6 +12,7 @@ internal sealed class MainForm : Form
     private readonly Settings settings=new();
     private readonly WebView2 view=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(11,22,40)};
     private readonly BrowserController browser;
+    private readonly DeepSeekAssistant assistant;
     private readonly VoiceAssistant voice;
     private readonly NotifyIcon tray=new();
     private readonly System.Windows.Forms.Timer poll=new(){Interval=1200};
@@ -34,6 +35,7 @@ internal sealed class MainForm : Form
     public MainForm(bool hidden,bool test=false)
     {
         browser=new(settings);
+        assistant=new(settings);
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -45,7 +47,12 @@ internal sealed class MainForm : Form
         Controls.Add(view);
         var icon=Path.Combine(AppContext.BaseDirectory,"ui","assets","app.ico");
         Icon=File.Exists(icon)?new Icon(icon):SystemIcons.Application;
-        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query);snapshot=result;Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null);
+        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query,command.Volume);snapshot=result;Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null,async(text,token)=>
+        {
+            JsonObject context=new();
+            await OnUiAsync(()=>{context=(JsonObject)snapshot.DeepClone();context["service"]=settings.Service;return Task.CompletedTask;});
+            return await assistant.ResolveAsync(text,context,token);
+        });
         voice.Changed+=()=>{if(!IsDisposed&&IsHandleCreated)BeginInvoke(()=>VoiceChanged());};
         Load+=async(_,_)=>await InitializeAsync();
         Shown+=(_,_)=>{if(startHidden)Hide();};
@@ -165,6 +172,7 @@ internal sealed class MainForm : Form
         result["genres"]=JsonSerializer.SerializeToNode(Settings.Genres);result["startup"]=StartupEnabled();result["hotkey_error"]=hotkeyError;
         result["backend"]="csharp";
         result["browser"]=browser.Status();
+        result["deepseek"]=JsonSerializer.SerializeToNode(assistant.Status());
         return result;
     }
     private async Task<object?> InvokeApiAsync(string method,JsonArray args)
@@ -175,6 +183,21 @@ internal sealed class MainForm : Form
             case "get_state":return State();
             case "get_settings":return Configuration();
             case "get_browser_status":return browser.Status();
+            case "save_deepseek":
+                if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
+                var apiKey=Arg(0)?.GetValue<string>()??"";
+                if(!string.IsNullOrWhiteSpace(apiKey))DeepSeekKey.Save(apiKey);
+                var enabled=Arg(1)?.GetValue<bool>()??false;
+                if(enabled&&!DeepSeekKey.Exists)throw new InvalidOperationException("Сначала введите API-ключ DeepSeek.");
+                settings.Value["deepseek_enabled"]=enabled;settings.Save();assistant.Reset();
+                return new{ok=true,deepseek=assistant.Status()};
+            case "test_deepseek":
+                if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
+                await assistant.TestAsync();return new{ok=true,deepseek=assistant.Status()};
+            case "delete_deepseek":
+                if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
+                DeepSeekKey.Delete();settings.Value["deepseek_enabled"]=false;settings.Save();assistant.Reset();
+                return new{ok=true,deepseek=assistant.Status()};
             case "get_drop":return settings.Value["drop"]!.DeepClone();
             case "show":ShowWidget();break;
             case "hide":Hide();break;
@@ -348,7 +371,7 @@ internal sealed class MainForm : Form
     private async void Quit()
     {
         if(quitting)return;quitting=true;lifetime.Cancel();poll.Stop();wheelTimer.Stop();islandTimer.Stop();
-        voice.Dispose();hotkeys?.Dispose();wheel?.Dispose();showWait?.Unregister(null);showSignal.Dispose();tray.Visible=false;tray.Dispose();popup.Dispose();island.Dispose();
+        voice.Dispose();assistant.Dispose();hotkeys?.Dispose();wheel?.Dispose();showWait?.Unregister(null);showSignal.Dispose();tray.Visible=false;tray.Dispose();popup.Dispose();island.Dispose();
         await browser.DisposeAsync();Close();Application.Exit();
     }
 }
