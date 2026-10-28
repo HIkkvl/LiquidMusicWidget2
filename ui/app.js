@@ -113,30 +113,33 @@ function renderShortcutRows() {
 let browserSetupPending=false;
 function renderAssistantSettings() {
   const section=document.createElement('section');section.className='overlay-options';
-  const title=document.createElement('h3');title.textContent='Умный помощник · DeepSeek';
-  const note=document.createElement('p');note.textContent='Понимает свободные фразы и уточнения, учитывает текущий трек. Текст сложных запросов, данные плеера и короткая история отправляются в DeepSeek; API платный. Голос распознаётся локально. Простые команды работают без интернета. Ответы показаны текстом.';
+  const title=document.createElement('h3');title.textContent='Умный помощник · Gemini / DeepSeek';
+  const note=document.createElement('p');note.textContent='Понимает свободные фразы и уточнения, учитывает текущий трек. Текст сложных запросов, данные плеера и короткая история отправляются в выбранный сервис. Gemini доступен в рамках Free Tier с квотами; доступность зависит от региона и аккаунта. На Free Tier данные могут использоваться Google для улучшения продуктов. DeepSeek требует API-баланс. Голос распознаётся локально. Простые команды работают без интернета. Ответы показаны текстом.';
+  const provider=document.createElement('select');provider.id='assistant-provider';provider.setAttribute('aria-label','Сервис умного помощника');
+  for(const [value,label] of [['gemini','Gemini · Google'],['deepseek','DeepSeek']]){const option=document.createElement('option');option.value=value;option.textContent=label;provider.append(option);}
   const enabledLabel=document.createElement('label');enabledLabel.className='overlay-enabled';
   const enabled=document.createElement('input');enabled.type='checkbox';enabled.id='deepseek-enabled';enabled.checked=!!configuration.deepseek?.enabled;
-  enabledLabel.append(enabled,document.createTextNode('Использовать DeepSeek для свободных фраз'));
-  const key=document.createElement('input');key.type='password';key.id='deepseek-key';key.autocomplete='off';key.setAttribute('aria-label','API-ключ DeepSeek');key.placeholder=configuration.deepseek?.configured?'Ключ сохранён — введите новый для замены':'API-ключ DeepSeek';
+  enabledLabel.append(enabled,document.createTextNode('Использовать модель для свободных фраз'));
+  const key=document.createElement('input');key.type='password';key.id='deepseek-key';key.autocomplete='off';key.setAttribute('aria-label','API-ключ выбранного помощника');
   const status=document.createElement('p');status.id='deepseek-status';status.setAttribute('role','status');
   const save=document.createElement('button');save.type='button';save.id='save-deepseek';save.textContent='Сохранить помощника';
   const test=document.createElement('button');test.type='button';test.id='test-deepseek';test.textContent='Проверить подключение';
   const remove=document.createElement('button');remove.type='button';remove.id='delete-deepseek';remove.textContent='Удалить ключ';
-  function paint(){const s=configuration.deepseek||{};enabled.checked=!!s.enabled;status.textContent=s.configured?(s.enabled?'Включён · ':'Ключ сохранён · ')+(s.model||'DeepSeek'):'Ключ не настроен';test.disabled=remove.disabled=!s.configured;}
+  function paint(){const s=configuration.deepseek||{};provider.value=s.provider||'deepseek';enabled.checked=!!s.enabled;key.placeholder=s.configured?'Ключ сохранён — введите новый для замены':'API-ключ '+(provider.value==='gemini'?'Gemini':'DeepSeek');status.textContent=s.configured?(s.enabled?'Включён · ':'Ключ сохранён · ')+(s.model||provider.value):'Ключ не настроен';test.disabled=remove.disabled=!s.configured;}
   async function update(method,...args){
-    save.disabled=test.disabled=remove.disabled=enabled.disabled=true;
+    save.disabled=test.disabled=remove.disabled=enabled.disabled=provider.disabled=key.disabled=true;
     try {
       const result=await invoke(method,...args);
       if(result.deepseek)configuration.deepseek=result.deepseek;
-      if(result.ok){key.value='';key.placeholder=configuration.deepseek?.configured?'Ключ сохранён — введите новый для замены':'API-ключ DeepSeek';paint();if(method==='test_deepseek')status.textContent='Подключение проверено · '+configuration.deepseek.model;}
+      if(result.ok){key.value='';paint();if(method==='test_deepseek')status.textContent='Подключение проверено · '+configuration.deepseek.model;}
       else {paint();showSettingsError(result.error);}
-    } finally {save.disabled=enabled.disabled=false;test.disabled=remove.disabled=!configuration.deepseek?.configured;}
+    } finally {save.disabled=enabled.disabled=provider.disabled=key.disabled=false;test.disabled=remove.disabled=!configuration.deepseek?.configured;}
   }
   save.addEventListener('click',()=>update('save_deepseek',key.value,enabled.checked));
   test.addEventListener('click',()=>update('test_deepseek'));
   remove.addEventListener('click',()=>update('delete_deepseek'));
-  section.append(title,note,enabledLabel,key,status,save,test,remove);$('shortcut-rows').append(section);paint();
+  provider.addEventListener('change',()=>update('set_assistant_provider',provider.value));
+  section.append(title,note,provider,enabledLabel,key,status,save,test,remove);$('shortcut-rows').append(section);paint();
 }
 function renderBrowserSettings() {
   const section=document.createElement('section');section.className='overlay-options';

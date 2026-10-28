@@ -27,9 +27,10 @@ const {pathToFileURL} = require('node:url');
      },
      save_settings:async(b)=>{window.saved=b;return {ok:true};},
      set_yandex_domain:async(domain)=>{window.yandexDomain=domain;return {ok:true};},
-     save_deepseek:async(key,enabled)=>{window.assistantKey=key;window.assistantEnabled=enabled;return {ok:true,deepseek:{enabled,configured:true,model:'deepseek-flash'}};},
-     test_deepseek:async()=>({ok:true,deepseek:{enabled:true,configured:true,model:'deepseek-flash'}}),
-     delete_deepseek:async()=>({ok:true,deepseek:{enabled:false,configured:false,model:'deepseek-flash'}}),
+     set_assistant_provider:async(provider)=>{window.assistantProvider=provider;return {ok:true,deepseek:{provider,enabled:false,configured:false}};},
+     save_deepseek:async(key,enabled)=>{window.assistantKey=key;window.assistantEnabled=enabled;return {ok:true,deepseek:{provider:window.assistantProvider,enabled,configured:true,model:'gemini-3.5-flash-lite'}};},
+     test_deepseek:async()=>({ok:true,deepseek:{provider:window.assistantProvider,enabled:true,configured:true,model:'gemini-3.5-flash-lite'}}),
+     delete_deepseek:async()=>({ok:true,deepseek:{provider:window.assistantProvider,enabled:false,configured:false}}),
      hide:async()=>({ok:true}),quit:async()=>({ok:true}),set_topmost:async()=>({ok:true}),set_startup:async()=>({ok:true})
    }};
  });
@@ -58,6 +59,10 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
  assert.equal(await page.locator('#deepseek-key').getAttribute('type'),'password');
+ await page.locator('#deepseek-key').fill('unsaved-key');
+ await page.locator('#assistant-provider').selectOption('gemini');
+ await page.waitForFunction(()=>window.assistantProvider==='gemini');
+ assert.equal(await page.locator('#deepseek-key').inputValue(),'','Provider switch clears unsaved key');
  await page.locator('#deepseek-key').scrollIntoViewIfNeeded();
  await page.screenshot({path:'tests/assistant-preview.png'});
  await page.locator('#deepseek-key').fill('test-key-not-a-real-secret');
@@ -94,6 +99,7 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#keys-button').click();
  assert.equal(await page.locator('#browser-status').textContent(),'Подключено','Connected status survives reopening settings');
  assert.equal(await page.locator('#yandex-domain').inputValue(),'music.yandex.kz','Regional choice survives reopening settings');
+ assert.equal(await page.locator('#assistant-provider').inputValue(),'gemini','Assistant provider survives reopening settings');
  await page.screenshot({path:'tests/settings-preview.png'});
  await page.keyboard.press('Escape');
  await page.setViewportSize({width:350,height:600});

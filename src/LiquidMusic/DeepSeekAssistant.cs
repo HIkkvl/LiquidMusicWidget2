@@ -9,45 +9,77 @@ namespace LiquidMusic;
 
 internal static class DeepSeekKey
 {
-    private static string FilePath=>Path.Combine(AppPaths.Data,"deepseek-key.bin");
-    public static bool Exists=>File.Exists(FilePath);
-    public static string Read()
+    private static string FilePath(string provider)=>Path.Combine(AppPaths.Data,provider switch{"deepseek"=>"deepseek-key.bin","gemini"=>"gemini-key.bin",_=>throw new ArgumentException("Неизвестный провайдер")});
+    public static bool Exists=>ExistsFor("deepseek");
+    public static bool ExistsFor(string provider)=>File.Exists(FilePath(provider));
+    public static string Read(string provider="deepseek")
     {
-        try{return Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(FilePath),null,DataProtectionScope.CurrentUser));}
-        catch{throw new InvalidOperationException("Сохраните API-ключ DeepSeek заново в настройках этого пользователя Windows.");}
+        try{return Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(FilePath(provider)),null,DataProtectionScope.CurrentUser));}
+        catch{throw new InvalidOperationException("Сохраните API-ключ выбранного помощника заново в настройках этого пользователя Windows.");}
     }
-    public static void Save(string key)
+    public static void Save(string key,string provider="deepseek")
     {
         key=key.Trim();
-        if(key.Length is <16 or >256||key.Any(char.IsWhiteSpace))throw new ArgumentException("Проверьте API-ключ DeepSeek.");
+        if(key.Length is <16 or >256||key.Any(char.IsWhiteSpace))throw new ArgumentException("Проверьте API-ключ помощника.");
         Directory.CreateDirectory(AppPaths.Data);
         var encrypted=ProtectedData.Protect(Encoding.UTF8.GetBytes(key),null,DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(FilePath+".tmp",encrypted);File.Move(FilePath+".tmp",FilePath,true);
+        var path=FilePath(provider);
+        File.WriteAllBytes(path+".tmp",encrypted);File.Move(path+".tmp",path,true);
     }
-    public static void Delete(){if(Exists)File.Delete(FilePath);}
+    public static void Delete(string provider="deepseek"){var path=FilePath(provider);if(File.Exists(path))File.Delete(path);}
 }
 
 internal sealed class DeepSeekAssistant(Settings settings,HttpClient? client=null,Func<string>? keyProvider=null) : IDisposable
 {
     private readonly HttpClient http=client??new HttpClient{Timeout=TimeSpan.FromSeconds(20)};
     private readonly List<JsonObject> history=[];
-    public bool Enabled=>settings.Value["deepseek_enabled"]?.GetValue<bool>()==true&&(keyProvider!=null||DeepSeekKey.Exists);
-    public object Status()=>new{enabled=Enabled,configured=DeepSeekKey.Exists,model=Model};
-    private string Model=>settings.Value["deepseek_model"]?.GetValue<string>()??"deepseek-flash";
+    public string Provider {get;private set;}=settings.Value["assistant_provider"]?.GetValue<string>()=="gemini"?"gemini":"deepseek";
+    private bool Gemini=>Provider=="gemini";
+    private string Name=>Gemini?"Gemini":"DeepSeek";
+    private string BaseUrl=>Gemini?"https://generativelanguage.googleapis.com/v1beta/openai/":"https://api.deepseek.com/";
+    public bool HasKey=>keyProvider!=null||DeepSeekKey.ExistsFor(Provider);
+    public bool Enabled=>settings.Value[Provider+"_enabled"]?.GetValue<bool>()==true&&HasKey;
+    public object Status()=>new{provider=Provider,enabled=Enabled,configured=HasKey,model=Model};
+    private string Model=>settings.Value[Provider+"_model"]?.GetValue<string>()??(Gemini?"gemini-3.5-flash-lite":"deepseek-flash");
+    public void SelectProvider(string provider)
+    {
+        if(provider is not("gemini" or "deepseek"))throw new ArgumentException("Неизвестный помощник");
+        settings.Value["assistant_provider"]=provider;settings.Save();Provider=provider;Reset();
+    }
+    public void SaveKey(string key)=>DeepSeekKey.Save(key,Provider);
+    public void DeleteKey()=>DeepSeekKey.Delete(Provider);
+    public void SetEnabled(bool enabled)
+    {
+        if(enabled&&!HasKey)throw new InvalidOperationException("Сначала введите API-ключ выбранного помощника.");
+        settings.Value[Provider+"_enabled"]=enabled;settings.Save();Reset();
+    }
     public void Reset()=>history.Clear();
     public void Dispose(){if(client==null)http.Dispose();}
-    private string ReadKey()=>keyProvider?.Invoke()??DeepSeekKey.Read();
+    private string ReadKey()=>keyProvider?.Invoke()??DeepSeekKey.Read(Provider);
     public async Task TestAsync(CancellationToken token=default)
     {
-        using var request=new HttpRequestMessage(HttpMethod.Get,"https://api.deepseek.com/models");
+        using var request=new HttpRequestMessage(HttpMethod.Get,BaseUrl+"models");
         request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",ReadKey());
         using var response=await http.SendAsync(request,token);
-        if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"DeepSeek: проверка ключа не прошла (HTTP {(int)response.StatusCode}).");
+        if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"{Name}: проверка ключа не прошла (HTTP {(int)response.StatusCode}). Проверьте ключ, разрешения и доступность сервиса в вашем регионе.");
         var data=JsonNode.Parse(await response.Content.ReadAsStringAsync(token));
-        var available=data?["data"]?.AsArray().Select(item=>item?["id"]?.GetValue<string>()).ToHashSet()??[];
-        var selected=new[]{Model,"deepseek-flash","deepseek-chat","deepseek-v4-pro"}.FirstOrDefault(available.Contains);
-        if(selected==null)throw new InvalidOperationException("У ключа нет доступной совместимой модели DeepSeek.");
-        settings.Value["deepseek_model"]=selected;settings.Save();
+        var available=data?["data"]?.AsArray().Select(item=>item?["id"]?.GetValue<string>())
+            .Select(id=>Gemini&&id?.StartsWith("models/",StringComparison.Ordinal)==true?id[7..]:id).ToHashSet()??[];
+        var preferred=Gemini?new[]{"gemini-3.5-flash-lite","gemini-3.1-flash-lite","gemini-2.5-flash-lite"}:new[]{Model,"deepseek-flash","deepseek-chat","deepseek-v4-pro"};
+        var selected=preferred.FirstOrDefault(available.Contains);
+        if(selected==null)throw new InvalidOperationException($"У ключа нет доступной совместимой модели {Name}.");
+        settings.Value[Provider+"_model"]=selected;settings.Save();
+        // Listing models does not verify Gemini's generation quota. Make one
+        // short inference request; never switch providers or enable billing.
+        if(Gemini)
+        {
+            using var check=new HttpRequestMessage(HttpMethod.Post,BaseUrl+"chat/completions")
+            {Content=JsonContent.Create(new{model=Model,messages=new[]{new{role="user",content="Reply with OK."}},max_tokens=64,reasoning_effort=Model.StartsWith("gemini-2.5-",StringComparison.Ordinal)?"none":"minimal"})};
+            check.Headers.Authorization=new AuthenticationHeaderValue("Bearer",ReadKey());
+            using var checkedResponse=await http.SendAsync(check,token);
+            if(!checkedResponse.IsSuccessStatusCode)throw ApiError(checkedResponse.StatusCode);
+            return;
+        }
         using var balanceRequest=new HttpRequestMessage(HttpMethod.Get,"https://api.deepseek.com/user/balance");
         balanceRequest.Headers.Authorization=new AuthenticationHeaderValue("Bearer",ReadKey());
         using var balanceResponse=await http.SendAsync(balanceRequest,token);
@@ -72,33 +104,37 @@ internal sealed class DeepSeekAssistant(Settings settings,HttpClient? client=nul
         var state=new JsonObject();
         foreach(var name in new[]{"title","artist","playing","volume","connected","service"})state[name]=context[name]?.DeepClone();
         messages.Add(new JsonObject{["role"]="user",["content"]=new JsonObject{["request"]=text,["player"]=state}.ToJsonString()});
-        var body=new{model=Model,messages,thinking=new{type="disabled"},max_tokens=400,response_format=new{type="json_object"}};
-        using var request=new HttpRequestMessage(HttpMethod.Post,"https://api.deepseek.com/chat/completions"){Content=JsonContent.Create(body)};
+        var body=new JsonObject{["model"]=Model,["messages"]=messages,["max_tokens"]=600,["response_format"]=new JsonObject{["type"]="json_object"}};
+        if(Gemini)body["reasoning_effort"]=Model.StartsWith("gemini-2.5-",StringComparison.Ordinal)?"none":"minimal";
+        else body["thinking"]=new JsonObject{["type"]="disabled"};
+        using var request=new HttpRequestMessage(HttpMethod.Post,BaseUrl+"chat/completions"){Content=JsonContent.Create(body)};
         request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",ReadKey());
         HttpResponseMessage response;
         try{response=await http.SendAsync(request,token);}
-        catch(OperationCanceledException) when(!token.IsCancellationRequested){throw new InvalidOperationException("DeepSeek не ответил за 20 секунд. Повторите запрос или используйте короткую команду.");}
-        catch(HttpRequestException){throw new InvalidOperationException("Не удалось связаться с DeepSeek. Проверьте интернет; короткие команды работают локально.");}
+        catch(OperationCanceledException) when(!token.IsCancellationRequested){throw new InvalidOperationException($"{Name} не ответил за 20 секунд. Повторите запрос или используйте короткую команду.");}
+        catch(HttpRequestException){throw new InvalidOperationException($"Не удалось связаться с {Name}. Проверьте интернет; короткие команды работают локально.");}
         using(response)
         {
-            if(!response.IsSuccessStatusCode)throw new InvalidOperationException(response.StatusCode switch
-            {
-                System.Net.HttpStatusCode.Unauthorized=>"DeepSeek отклонил API-ключ. Обновите его в настройках.",
-                System.Net.HttpStatusCode.PaymentRequired=>"Недостаточно средств на API-балансе DeepSeek.",
-                System.Net.HttpStatusCode.TooManyRequests=>"DeepSeek ограничил частоту запросов. Попробуйте позже.",
-                _=>$"DeepSeek временно недоступен (HTTP {(int)response.StatusCode})."
-            });
+            if(!response.IsSuccessStatusCode)throw ApiError(response.StatusCode);
             var result=JsonNode.Parse(await response.Content.ReadAsStringAsync(token));
             var choice=result?["choices"]?[0];
-            if(choice?["finish_reason"]?.GetValue<string>()!="stop")throw new InvalidOperationException("DeepSeek не завершил ответ. Повторите просьбу.");
+            if(choice?["finish_reason"]?.GetValue<string>()!="stop")throw new InvalidOperationException($"{Name} не завершил ответ. Повторите просьбу.");
             var content=choice?["message"]?["content"]?.GetValue<string>()??"";
             VoiceCommand command;
             try{command=Parse(content);}catch(Exception error) when(error is JsonException or ArgumentException or InvalidOperationException or FormatException)
-            {throw new InvalidOperationException("DeepSeek вернул непонятный ответ. Действие не выполнено.");}
+            {throw new InvalidOperationException($"{Name} вернул непонятный ответ. Действие не выполнено.");}
             token.ThrowIfCancellationRequested();
             Remember(text,command);return command;
         }
     }
+    private InvalidOperationException ApiError(System.Net.HttpStatusCode status)=>new(status switch
+    {
+        System.Net.HttpStatusCode.Unauthorized=>$"{Name} отклонил API-ключ. Обновите его в настройках.",
+        System.Net.HttpStatusCode.Forbidden=>$"{Name}: доступ запрещён. Проверьте разрешения ключа и доступность сервиса в вашем регионе.",
+        System.Net.HttpStatusCode.PaymentRequired=>$"Недостаточно средств на API-балансе {Name}.",
+        System.Net.HttpStatusCode.TooManyRequests=>$"{Name}: превышена квота запросов. Проверьте лимиты Free Tier в кабинете сервиса и повторите позже.",
+        _=>$"{Name}: запрос не выполнен (HTTP {(int)status}). Проверьте ключ и настройки модели."
+    });
     private void Remember(string text,VoiceCommand command)
     {
         history.Add(new(){["role"]="user",["content"]=text});

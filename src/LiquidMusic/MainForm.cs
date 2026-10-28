@@ -183,20 +183,23 @@ internal sealed class MainForm : Form
             case "get_state":return State();
             case "get_settings":return Configuration();
             case "get_browser_status":return browser.Status();
+            case "set_assistant_provider":
+                if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
+                assistant.SelectProvider(Arg(0)!.GetValue<string>());
+                return new{ok=true,deepseek=assistant.Status()};
             case "save_deepseek":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
                 var apiKey=Arg(0)?.GetValue<string>()??"";
-                if(!string.IsNullOrWhiteSpace(apiKey))DeepSeekKey.Save(apiKey);
+                if(!string.IsNullOrWhiteSpace(apiKey))assistant.SaveKey(apiKey);
                 var enabled=Arg(1)?.GetValue<bool>()??false;
-                if(enabled&&!DeepSeekKey.Exists)throw new InvalidOperationException("Сначала введите API-ключ DeepSeek.");
-                settings.Value["deepseek_enabled"]=enabled;settings.Save();assistant.Reset();
+                assistant.SetEnabled(enabled);
                 return new{ok=true,deepseek=assistant.Status()};
             case "test_deepseek":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
                 await assistant.TestAsync();return new{ok=true,deepseek=assistant.Status()};
             case "delete_deepseek":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
-                DeepSeekKey.Delete();settings.Value["deepseek_enabled"]=false;settings.Save();assistant.Reset();
+                assistant.DeleteKey();assistant.SetEnabled(false);
                 return new{ok=true,deepseek=assistant.Status()};
             case "get_drop":return settings.Value["drop"]!.DeepClone();
             case "show":ShowWidget();break;

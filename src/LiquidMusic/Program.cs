@@ -14,6 +14,8 @@ static class Program
         if (args.Contains("--self-test")) { Environment.ExitCode = SelfTests.Run(); return; }
         if (args.Contains("--assistant-test")) { Environment.ExitCode = DeepSeekTests.RunAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--configure-deepseek")) { Environment.ExitCode = DeepSeekTests.ConfigureAsync().GetAwaiter().GetResult(); return; }
+        if (args.Contains("--configure-gemini")) { Environment.ExitCode = DeepSeekTests.ConfigureAsync("gemini").GetAwaiter().GetResult(); return; }
+        if (args.Contains("--gemini-test")) { Environment.ExitCode = DeepSeekTests.LiveAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--deepseek-test")) { Environment.ExitCode = DeepSeekTests.LiveAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--connection-test")) { Environment.ExitCode = BrowserConnectionTests.RunAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--browser-test")) { Environment.ExitCode = SelfTests.BrowserAsync().GetAwaiter().GetResult(); return; }

@@ -14,10 +14,13 @@ internal static class DeepSeekTests
         public string Intent="{\"action\":\"volume\",\"volume\":0.4}";
         public JsonObject? Request;
         public bool BalanceAvailable=true;
+        public string[] Models=["deepseek-chat"];
+        public readonly List<Uri> Endpoints=[];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token)
         {
             Calls++;
-            if(request.Method==HttpMethod.Get)return new(HttpStatusCode.OK){Content=new StringContent(request.RequestUri!.AbsolutePath=="/models"?"{\"data\":[{\"id\":\"deepseek-chat\"}]}":JsonSerializer.Serialize(new{is_available=BalanceAvailable}))};
+            Endpoints.Add(request.RequestUri!);
+            if(request.Method==HttpMethod.Get)return new(HttpStatusCode.OK){Content=new StringContent(request.RequestUri!.AbsolutePath.EndsWith("/models",StringComparison.Ordinal)?JsonSerializer.Serialize(new{data=Models.Select(id=>new{id})}):JsonSerializer.Serialize(new{is_available=BalanceAvailable}))};
             if(request.Content!=null)Request=JsonNode.Parse(await request.Content.ReadAsStringAsync(token))!.AsObject();
             return new(Status){Content=new StringContent(JsonSerializer.Serialize(new{choices=new[]{new{finish_reason="stop",message=new{content=Intent}}}}),Encoding.UTF8,"application/json")};
         }
@@ -64,6 +67,22 @@ internal static class DeepSeekTests
             handler.BalanceAvailable=false;
             try{await assistant.TestAsync();throw new Exception("Empty balance accepted");}
             catch(InvalidOperationException error){Check(error.Message.Contains("API-балансе"),"Balance checked without inference charges");}
+            handler.Status=HttpStatusCode.OK;handler.Models=["models/gemini-3.5-flash-lite"];
+            handler.Intent="{\"action\":\"volume\",\"volume\":0.4}";
+            assistant.SelectProvider("gemini");assistant.SetEnabled(true);
+            handler.Endpoints.Clear();
+            await assistant.TestAsync();
+            Check(settings.Value["gemini_model"]?.GetValue<string>()=="gemini-3.5-flash-lite","Normalize Google models/ prefixes");
+            Check(handler.Endpoints.Count==2&&handler.Endpoints.All(uri=>uri.Host=="generativelanguage.googleapis.com"),"Gemini key stays on Google endpoints; generation quota is tested");
+            command=await assistant.ResolveAsync("Сделай потише",new(){["volume"]=0.5},default);
+            Check(command.Volume==0.4&&handler.Request!["thinking"]==null&&handler.Request["reasoning_effort"]?.GetValue<string>()=="minimal","Gemini-compatible request");
+            Check(handler.Request!["messages"]!.AsArray().Count==2,"Provider switch clears previous conversation");
+            handler.Status=HttpStatusCode.TooManyRequests;
+            try{await assistant.ResolveAsync("Что играет?",new(),default);throw new Exception("Quota error accepted");}
+            catch(InvalidOperationException error){Check(error.Message.Contains("квота")&&error.Message.Contains("Gemini"),"Gemini quota error explained");}
+            assistant.SelectProvider("deepseek");
+            Check(!assistant.Enabled&&settings.Value["gemini_enabled"]?.GetValue<bool>()==true,"Provider preferences stay separate");
+            try{assistant.SelectProvider("https://evil.example");throw new Exception("Unknown provider accepted");}catch(ArgumentException){}
             var answered=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var executed=false;
             using(var voice=new VoiceAssistant(_=>{executed=true;return Task.CompletedTask;},_=>Task.FromResult("Кто поёт?"),_=>Task.CompletedTask,(_,_)=>Task.FromResult(new VoiceCommand("reply",null,null,"VILLIAN"))))
@@ -84,12 +103,12 @@ internal static class DeepSeekTests
                 await cancelledVoice.Task.WaitAsync(TimeSpan.FromSeconds(3));
                 Check(!executed,"Cancel during interpretation prevents execution");
             }
-            Console.WriteLine("PASS: DeepSeek routing, context/history, clarification, output validation, API failures, cancellation and local fallback");return 0;
+            Console.WriteLine("PASS: Gemini/DeepSeek routing, provider isolation, model discovery, context/history, output validation, quota failures, cancellation and local fallback");return 0;
         }
         catch(Exception error){Console.Error.WriteLine(error);return 1;}
         finally{if(File.Exists(testFile))File.Delete(testFile);}
     }
-    public static async Task<int> ConfigureAsync()
+    public static async Task<int> ConfigureAsync(string provider="deepseek")
     {
         try
         {
@@ -108,11 +127,13 @@ internal static class DeepSeekTests
                 }
                 key=input.ToString();
             }
-            DeepSeekKey.Save(key);
             var settings=new Settings();using var assistant=new DeepSeekAssistant(settings);
+            assistant.SelectProvider(provider);
+            if(!string.IsNullOrWhiteSpace(key))assistant.SaveKey(key);
+            else if(!assistant.HasKey)throw new InvalidOperationException("Enter an API key first.");
             await assistant.TestAsync();
-            settings.Value["deepseek_enabled"]=true;settings.Save();
-            Console.WriteLine("DeepSeek configured; encrypted key saved locally. Model: "+settings.Value["deepseek_model"]);return 0;
+            assistant.SetEnabled(true);
+            Console.WriteLine(provider+" configured; encrypted key saved locally. Model: "+settings.Value[provider+"_model"]);return 0;
         }
         catch(Exception error){Console.Error.WriteLine(error.Message);return 1;}
     }
@@ -121,10 +142,10 @@ internal static class DeepSeekTests
         try
         {
             var settings=new Settings();using var assistant=new DeepSeekAssistant(settings);
-            if(!assistant.Enabled)throw new InvalidOperationException("Configure DeepSeek first.");
+            if(!assistant.Enabled)throw new InvalidOperationException("Configure the assistant first.");
             var intent=await assistant.ResolveAsync("Слишком громко, сделай чуть потише",new(){["connected"]=true,["volume"]=0.6,["title"]="Династия",["artist"]="VILLIAN"},default);
             Check(intent.Action=="volume"&&intent.Volume<0.6,"Live volume intent");
-            Console.WriteLine("PASS live DeepSeek: "+intent.Action+" "+intent.Volume);return 0;
+            Console.WriteLine("PASS live "+assistant.Provider+": "+intent.Action+" "+intent.Volume);return 0;
         }
         catch(Exception error){Console.Error.WriteLine(error.Message);return 1;}
     }
