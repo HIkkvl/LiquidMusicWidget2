@@ -72,7 +72,7 @@
           const info=el.className+' '+el.getAttribute('data-testid')+' '+[...el.querySelectorAll('use')].map(use=>use.getAttribute('href')||use.getAttribute('xlink:href')).join(' ');
           return /playbutton|play-button|play_button|#play\b/i.test(info)&&!/pause/i.test(info);
         });
-        if(button){button.setAttribute('data-liquid-control','search');if(action==='search_click')button.click();return true;}
+        if(button){row.setAttribute('data-liquid-control','search-card');button.setAttribute('data-liquid-control','search');if(action==='search_click')button.click();return true;}
         row.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,view:window}));
       }
     }

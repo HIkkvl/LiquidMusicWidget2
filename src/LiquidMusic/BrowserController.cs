@@ -159,7 +159,7 @@ internal sealed class BrowserController : IAsyncDisposable
             {
                 if(string.IsNullOrWhiteSpace(query)||query.Length>200)throw new ArgumentException("Укажите название трека");
                 if(service=="youtube")await SearchYouTubeAsync(page,query);
-                else await SearchYandexAsync(page,query);
+                else await SearchYandexAsync(page,query,script);
             }
             else if(action=="volume")
             {
@@ -172,15 +172,20 @@ internal sealed class BrowserController : IAsyncDisposable
                 var result=await page.EvaluateAsync<JsonElement>(script,new{action="target",command=action,service});
                 if(result.TryGetProperty("already",out var already)&&already.GetBoolean())return await ReadAsync(page,service);
                 if(!result.TryGetProperty("found",out var found)||!found.GetBoolean())throw new InvalidOperationException("На сайте не найдена кнопка «"+action+"». Проверьте вход в аккаунт и доступность плеера.");
-                await page.Locator("[data-liquid-control='target']").EvaluateAsync("el=>el.click()");
+                if(!await ClickControlAsync(page,"target"))throw new InvalidOperationException("Кнопка плеера перекрыта. Закройте диалог в музыкальной вкладке и повторите.");
             }
             // A successful click is not a playback confirmation.
+            var resumed=false;
             for(var i=0;i<40;i++)
             {
                 await Task.Delay(250);
                 var snapshot=await ReadAsync(page,service);
                 var playing=snapshot["playing"]?.GetValue<bool>()==true;
                 if(action=="search_play"&&playing&&VoiceMatch(snapshot,query!))return snapshot;
+                if(action=="search_play"&&service=="yandex"&&!playing&&!resumed&&i>=2&&VoiceMatch(snapshot,query!))
+                {
+                    resumed=await ResumeYandexAsync(page,script);
+                }
                 if(action is "pause" or "stop" && !playing)return snapshot;
                 if(action=="play"&&playing)return snapshot;
                 if(action is not("search_play" or "pause" or "stop" or "play"))return snapshot;
@@ -195,7 +200,7 @@ internal sealed class BrowserController : IAsyncDisposable
         var text=" "+Normalize((snapshot["title"]?.GetValue<string>()??"")+" "+(snapshot["artist"]?.GetValue<string>()??""))+" ";
         return Normalize(query).Split(' ',StringSplitOptions.RemoveEmptyEntries).All(word=>text.Contains(" "+word+" "));
     }
-    private async Task SearchYandexAsync(IPage page,string query)
+    internal static async Task SearchYandexAsync(IPage page,string query,string script)
     {
         var origin=new Uri(page.Url).GetLeftPart(UriPartial.Authority);
         await page.GotoAsync(origin+"/search?text="+Uri.EscapeDataString(query),new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=25000});
@@ -203,23 +208,104 @@ internal sealed class BrowserController : IAsyncDisposable
         try
         {
             await tabs.First.WaitForAsync(new(){State=WaitForSelectorState.Attached,Timeout=10000});
-            await tabs.First.EvaluateAsync("el=>{if(el.getAttribute('aria-selected')!=='true')el.click();}");
+            if(await tabs.First.GetAttributeAsync("aria-selected")!="true")
+            {
+                await tabs.First.EvaluateAsync("el=>el.setAttribute('data-liquid-control','tracks-tab')");
+                await ClickControlAsync(page,"tracks-tab");
+            }
         }
         catch(TimeoutException){AppPaths.Log("Search tracks tab absent; trying track-only results.");}
         var deadline=DateTime.UtcNow.AddSeconds(15);
         while(DateTime.UtcNow<deadline)
         {
-            var target=await page.EvaluateAsync<bool>(script,new{action="search_click",service="yandex",query});
+            var target=await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query});
             if(target)
             {
-                // Find and invoke in a single browser task. React cannot replace
-                // the node between those steps, and hover overlays cannot steal
-                // a coordinate click. CDP execution never activates the OS window.
-                return;
+                try
+                {
+                    // Real browser input triggers pointer handlers and reveals
+                    // CSS hover controls. Hit testing prevents clicking
+                    // an overlaid track link instead of the play button.
+                    var clicked=await ClickControlAsync(page,"search","search-card");
+                    if(clicked)
+                    {
+                        // Streamed React cards can be visible before their
+                        // handlers are hydrated. An input event alone is not
+                        // evidence that the site selected the requested track.
+                        for(var attempt=0;attempt<8;attempt++)
+                        {
+                            await Task.Delay(250);
+                            var state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                            var snapshot=JsonNode.Parse(state.GetRawText())!.AsObject();
+                            if(VoiceMatch(snapshot,query))return;
+                        }
+                    }
+                }
+                catch(Exception error) when(error is PlaywrightException or TimeoutException){/* React may replace the card: locate it again. */}
             }
             await Task.Delay(350);
         }
-        throw new InvalidOperationException("Не найдена доступная кнопка запуска трека «"+query+"». Проверьте результаты поиска в Brave.");
+        throw new InvalidOperationException("Не найдена доступная кнопка запуска трека «"+query+"». Проверьте результаты поиска в музыкальной вкладке.");
+    }
+    internal static async Task<bool> ResumeYandexAsync(IPage page,string script)
+    {
+        var target=await page.EvaluateAsync<JsonElement>(script,new{action="target",command="play",service="yandex"});
+        if(!target.TryGetProperty("found",out var found)||!found.GetBoolean())return false;
+        try{return await ClickControlAsync(page,"target");}
+        catch(Exception error) when(error is PlaywrightException or TimeoutException){return false;}
+    }
+    internal static async Task<bool> ClickControlAsync(IPage page,string marker,string? hoverMarker=null)
+    {
+        // Locator.Click/Hover wait for animation frames to establish stability.
+        // Background/minimized tabs can suspend those frames. Use trusted CDP
+        // pointer input after synchronous geometry and hit testing instead.
+        const string pointScript="""
+            ({marker,check})=>{
+              const el=document.querySelector('[data-liquid-control="'+CSS.escape(marker)+'"]');
+              if(!el)return null;
+              if(!check)el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+              const rect=el.getBoundingClientRect();
+              const left=Math.max(0,rect.left),right=Math.min(innerWidth,rect.right),top=Math.max(0,rect.top),bottom=Math.min(innerHeight,rect.bottom);
+              if(right<=left||bottom<=top)return null;
+              const x=(left+right)/2,y=(top+bottom)/2;
+              if(check){
+                const style=getComputedStyle(el),hit=document.elementFromPoint(x,y);
+                if(style.visibility==='hidden'||style.display==='none'||el.disabled||el.getAttribute('aria-disabled')==='true'||!hit||!(hit===el||el.contains(hit)))return null;
+              }
+              return {x,y};
+            }
+            """;
+        var hover=await page.EvaluateAsync<JsonElement>(pointScript,new{marker=hoverMarker??marker,check=false});
+        if(hover.ValueKind!=JsonValueKind.Object)return false;
+        await page.Mouse.MoveAsync(hover.GetProperty("x").GetSingle(),hover.GetProperty("y").GetSingle());
+        if(hoverMarker!=null)await Task.Delay(100);
+        var point=await page.EvaluateAsync<JsonElement>(pointScript,new{marker,check=true});
+        if(point.ValueKind!=JsonValueKind.Object)return false;
+        var x=point.GetProperty("x").GetSingle();var y=point.GetProperty("y").GetSingle();
+        // Hovering the exact button can reveal an overlay; check once more
+        // before clicking, so an overlaid track link cannot receive the click.
+        await page.Mouse.MoveAsync(x,y);
+        point=await page.EvaluateAsync<JsonElement>(pointScript,new{marker,check=true});
+        if(point.ValueKind!=JsonValueKind.Object)return false;
+        await page.EvaluateAsync("""
+            marker=>{
+              window.__liquidInputReceived=false;
+              window.__liquidInputHandler=event=>{
+                const el=document.querySelector('[data-liquid-control="'+CSS.escape(marker)+'"]');
+                window.__liquidInputReceived=!!(event.isTrusted&&el&&(event.target===el||el.contains(event.target)));
+              };
+              window.addEventListener('click',window.__liquidInputHandler,{capture:true,once:true});
+            }
+            """,marker);
+        await page.Mouse.ClickAsync(point.GetProperty("x").GetSingle(),point.GetProperty("y").GetSingle());
+        return await page.EvaluateAsync<bool>("""
+            ()=>{
+              window.removeEventListener('click',window.__liquidInputHandler,true);
+              const received=window.__liquidInputReceived;
+              delete window.__liquidInputHandler;delete window.__liquidInputReceived;
+              return received===true;
+            }
+            """);
     }
     private async Task SearchYouTubeAsync(IPage page,string query)
     {

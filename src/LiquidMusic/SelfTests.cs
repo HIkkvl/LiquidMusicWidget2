@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Playwright;
 using Vosk;
@@ -89,19 +90,71 @@ internal static class SelfTests
             await page.EvaluateAsync("()=>document.title='background test'");
             Check(Native.GetForegroundWindow()==foreground,"Background browser command changed foreground");
             passed.Add("Background browser evaluation preserves Windows foreground");
+            // Regression: DOM .click() is untrusted and can leave the selected
+            // track paused. Exercise the same search path as a voice command.
+            using var audioBytes=new MemoryStream();
+            using(var wave=new BinaryWriter(audioBytes,System.Text.Encoding.UTF8,true))
+            {
+                wave.Write("RIFF"u8);wave.Write(32036);wave.Write("WAVEfmt "u8);wave.Write(16);
+                wave.Write((short)1);wave.Write((short)1);wave.Write(16000);wave.Write(32000);wave.Write((short)2);wave.Write((short)16);
+                wave.Write("data"u8);wave.Write(32000);wave.Write(new byte[32000]);
+            }
+            var playbackFixture="<meta charset='utf-8'><button role='tab' aria-selected='true'>Треки</button>"+
+                "<style>[class*=EntityCard_root] button{opacity:0;pointer-events:none}[class*=EntityCard_root]:hover button{opacity:1;pointer-events:auto}</style>"+
+                "<audio id='test-audio' loop src='data:audio/wav;base64,"+Convert.ToBase64String(audioBytes.ToArray())+"'></audio>"+
+                "<div class='PlayerBar_root'><span class='Meta_title'>Старый трек</span><span class='Meta_artists'>VILLIAN, madk1d</span><button id='resume' aria-label='Воспроизвести'>Play</button></div>"+cards+"""
+                <script>
+                window.trustedSearch=false;window.resumeClicks=0;window.searchClicks=0;
+                document.addEventListener('click',event=>{
+                  const button=event.target.closest('button');if(!button)return;
+                  const row=button.closest('[class*=EntityCard_root]');
+                  if(row?.querySelector('a[href*="/track/"]')&&button.getAttribute('aria-label')==='Ойнату'){
+                    if(!event.isTrusted)return;
+                    window.searchClicks++;if(window.ignoreFirstClick&&window.searchClicks===1)return;
+                    window.trustedSearch=true;document.querySelector('.Meta_title').textContent='Династия';
+                    if(!window.deferPlayback){document.querySelector('#test-audio').play();document.querySelector('#resume').setAttribute('aria-label','Пауза');}
+                  }
+                  if(button.id==='resume'&&event.isTrusted){window.resumeClicks++;document.querySelector('#test-audio').play();button.setAttribute('aria-label','Пауза');}
+                });
+                </script>
+                """;
+            await page.UnrouteAllAsync();
+            var deferPlayback=false;
+            await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=(deferPlayback?"<script>window.deferPlayback=true</script>":"")+playbackFixture}));
+            await BrowserController.SearchYandexAsync(page,"Династия",script);
+            await page.WaitForFunctionAsync("()=>window.trustedSearch&&!document.querySelector('#test-audio').paused");
+            state=await page.EvaluateAsync<System.Text.Json.JsonElement>(script,new{action="snapshot",service="yandex"});
+            Check(state.GetProperty("playing").GetBoolean()&&state.GetProperty("title").GetString()=="Династия","Trusted search input starts the requested track");
+            await page.WaitForFunctionAsync("()=>document.querySelector('#test-audio').currentTime>0");
+            await page.EvaluateAsync("()=>{const blocker=document.createElement('div');blocker.id='test-blocker';blocker.style.cssText='position:fixed;inset:0;z-index:999999';document.body.append(blocker);}");
+            await page.EvaluateAsync<JsonElement>(script,new{action="target",command="pause",service="yandex"});
+            Check(!await BrowserController.ClickControlAsync(page,"target"),"Overlaid controls must not receive an accidental click");
+            await page.EvaluateAsync("()=>document.querySelector('#test-blocker').remove()");
+            deferPlayback=true;
+            await BrowserController.SearchYandexAsync(page,"Династия",script);
+            Check(await page.EvaluateAsync<bool>("()=>window.trustedSearch&&document.querySelector('#test-audio').paused"),"Regression fixture loads requested track on pause");
+            Check(await BrowserController.ResumeYandexAsync(page,script),"Resume paused search result through the player");
+            await page.WaitForFunctionAsync("()=>!document.querySelector('#test-audio').paused");
+            Check(!await BrowserController.ResumeYandexAsync(page,script)&&await page.EvaluateAsync<int>("()=>window.resumeClicks")==1,"Playing track is not toggled back to pause");
+            deferPlayback=false;
+            await page.UnrouteAllAsync();
+            await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body="<script>window.ignoreFirstClick=true</script>"+playbackFixture}));
+            await BrowserController.SearchYandexAsync(page,"Династия",script);
+            Check(await page.EvaluateAsync<bool>("()=>window.searchClicks===2&&!document.querySelector('#test-audio').paused"),"Retry a visible card whose first click had no effect");
+            passed.Add("Trusted background input, ignored-first-click retry, paused-track resume, overlay rejection and native media playback");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}
     }
     private static void Write(string file,object value)=>File.WriteAllText(Path.Combine(AppPaths.Logs,file),System.Text.Json.JsonSerializer.Serialize(value));
-    public static async Task<int> LiveAsync()
+    public static async Task<int> LiveAsync(string query="Династия")
     {
         var foreground=Native.GetForegroundWindow();
         static string App(nint window){Native.GetWindowThreadProcessId(window,out var id);try{return System.Diagnostics.Process.GetProcessById((int)id).ProcessName;}catch{return "unknown";}}
         try
         {
             await using var controller=new BrowserController();
-            var result=await controller.CommandAsync("yandex","search_play","Династия");
+            var result=await controller.CommandAsync("yandex","search_play",query);
             Write("live-selftest.json",new{ok=true,foregroundPreserved=Native.GetForegroundWindow()==foreground,foregroundBefore=App(foreground),foregroundAfter=App(Native.GetForegroundWindow()),result});
             return 0;
         }
