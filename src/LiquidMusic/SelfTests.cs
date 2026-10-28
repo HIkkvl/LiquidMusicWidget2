@@ -86,6 +86,16 @@ internal static class SelfTests
             var state=await page.EvaluateAsync<System.Text.Json.JsonElement>(script,new{action="snapshot",service="yandex"});
             Check(state.GetProperty("title").GetString()=="Династия","Player metadata");
             passed.Add("Browser player metadata");
+            await page.EvaluateAsync("()=>{const preview=document.createElement('video');preview.muted=true;Object.defineProperty(preview,'duration',{value:10});document.body.append(preview);}");
+            state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+            Check(state.GetProperty("playing").GetBoolean(),"Paused preview media must not override the main player's Pause button");
+            Check(state.GetProperty("duration").GetDouble()!=10,"Preview duration must not replace the track duration");
+            await page.EvaluateAsync("()=>document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Воспроизведение')");
+            state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+            Check(!state.GetProperty("playing").GetBoolean(),"Main player's Play button reports paused playback");
+            await page.EvaluateAsync("()=>document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Очередь воспроизведения')");
+            var queueTarget=await page.EvaluateAsync<JsonElement>(script,new{action="target",command="play",service="yandex"});
+            Check(!queueTarget.GetProperty("found").GetBoolean(),"Playback queue is not a Play button");
             var foreground=Native.GetForegroundWindow();
             await page.EvaluateAsync("()=>document.title='background test'");
             Check(Native.GetForegroundWindow()==foreground,"Background browser command changed foreground");

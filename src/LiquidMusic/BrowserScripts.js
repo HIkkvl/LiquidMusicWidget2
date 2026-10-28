@@ -9,16 +9,21 @@
   };
   const playerSelector='[class*="PlayerBar"],ytmusic-player-bar,#movie_player';
   const players=[...document.querySelectorAll(playerSelector)];
-  const media=[...document.querySelectorAll('audio,video')].find(el=>!el.paused)||document.querySelector('audio,video');
+  const mediaElements=[...document.querySelectorAll('audio,video')];
+  const media=service==='yandex'?mediaElements.find(el=>el.tagName==='AUDIO'&&!el.paused)||mediaElements.find(el=>el.tagName==='AUDIO'&&el.closest(playerSelector)):mediaElements.find(el=>!el.paused)||mediaElements[0];
   const metadata=navigator.mediaSession?.metadata;
   const label=el=>[el.getAttribute('aria-label'),el.getAttribute('title')].filter(Boolean).join(' ');
   const enabled=el=>!el.hasAttribute('disabled') && el.getAttribute('aria-disabled')!=='true' && el.getAttribute('data-disabled')!=='true';
   const buttons=players.flatMap(root=>[...root.querySelectorAll('button,[role="button"],.ytp-next-button,.ytp-prev-button')]);
-  const hasPause=buttons.some(el=>/пауза|pause|кідірту/i.test(label(el)));
-  const playing=media?!media.paused:navigator.mediaSession?.playbackState==='playing'||hasPause;
+  const playPattern=/^(?:воспроизведение|воспроизвести|слушать|продолжить|играть|play|resume|ойнату)(?:\s|$)/i;
+  const hasPause=buttons.some(el=>enabled(el)&&/^(?:пауза|pause|кідірту)(?:\s|$)/i.test(label(el)));
+  const hasPlay=buttons.some(el=>enabled(el)&&playPattern.test(label(el)));
+  // Yandex can play the main track through its internal engine while a paused,
+  // muted preview <video> remains in the document. Its state is not the player.
+  const playing=service==='yandex'?(hasPause?true:hasPlay?false:navigator.mediaSession?.playbackState==='playing'||!!media&&!media.paused):media?!media.paused:navigator.mediaSession?.playbackState==='playing'||hasPause;
   const patterns={
     next:/следующ|next|келесі/i, previous:/предыдущ|previous|алдыңғы/i,
-    pause:/пауза|pause|кідірту/i,play:/воспроизве|слушать|продолж|играть|\bplay\b|resume|ойнату/i,
+    pause:/пауза|pause|кідірту/i,play:playPattern,
     like:/мне нравится|понравивш|нравится|\blike\b|liked|unlike|ұнайды/i
   };
   const volumeInput=document.querySelector('input[type="range"][aria-label*="громк" i],input[type="range"][aria-label*="volume" i]');

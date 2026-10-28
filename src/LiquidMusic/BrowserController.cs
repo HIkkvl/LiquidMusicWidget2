@@ -145,10 +145,16 @@ internal sealed class BrowserController : IAsyncDisposable
     public async Task<JsonObject> CommandAsync(string service,string action,string? query=null,double? volume=null)
     {
         await gate.WaitAsync();
+        ICDPSession? focus=null;
         try
         {
             var page=await PageAsync(service,true);
             if(action=="open")return await ReadAsync(page,service);
+            // NoDefaults preserves the user's ordinary browser state, including
+            // disabled focus emulation. Temporarily focus just this music target
+            // inside Chromium so background playback accepts trusted input.
+            focus=await page.Context.NewCDPSessionAsync(page);
+            await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",true}});
             if(action=="genre")
             {
                 var url=service=="youtube"?"https://www.youtube.com/results?search_query=":new Uri(page.Url).GetLeftPart(UriPartial.Authority)+"/search?text=";
@@ -192,7 +198,19 @@ internal sealed class BrowserController : IAsyncDisposable
             }
             throw new InvalidOperationException("Кнопка нажата, но сайт не подтвердил воспроизведение. Проверьте вход, подписку и ограничения автозапуска в браузере.");
         }
-        finally{gate.Release();}
+        finally
+        {
+            try
+            {
+                if(focus!=null)
+                {
+                    try{await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",false}});}
+                    catch(PlaywrightException){}
+                    try{await focus.DetachAsync();}catch(PlaywrightException){}
+                }
+            }
+            finally{gate.Release();}
+        }
     }
     internal static bool VoiceMatch(JsonObject snapshot,string query)
     {
