@@ -8,6 +8,7 @@ using Vosk;
 namespace LiquidMusic;
 
 internal readonly record struct VoiceCommand(string Action, string? Query,double? Volume=null,string? Reply=null);
+internal sealed record VoiceRecording(string Text,byte[] Wave);
 internal static class VoiceParser
 {
     public static VoiceCommand Parse(string text)
@@ -22,10 +23,16 @@ internal static class VoiceParser
             "следующий" or "следующий трек" or "переключи трек" => "next",
             "предыдущий" or "предыдущий трек" => "previous",
             "лайк" or "поставь лайк" => "like",
+            "pause" or "pause music" => "pause",
+            "stop" or "stop music" => "stop",
+            "play" or "resume" or "resume music" => "play",
+            "next" or "next track" or "next song" => "next",
+            "previous" or "previous track" or "previous song" => "previous",
+            "like" or "like this song" => "like",
             _ => ""
         };
         if(action.Length>0)return new(action,null);
-        var match=Regex.Match(text,@"^(?:включи|включить|поставь|сыграй|найди)\s+(?:(?:трек|песню|композицию)\s+)?(.+)$",RegexOptions.IgnoreCase);
+        var match=Regex.Match(text,@"^(?:включи|включить|поставь|сыграй|найди|play|find)\s+(?:(?:трек|песню|композицию|song|track)\s+)?(.+)$",RegexOptions.IgnoreCase);
         if(match.Success)
         {
             var query=match.Groups[1].Value.Trim(' ','.',',','!','?','«','»','"');
@@ -35,7 +42,7 @@ internal static class VoiceParser
     }
 }
 
-internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<CancellationToken,Task<string>>? recognitionOverride=null,Func<VoiceCue,Task>? cueOverride=null,Func<string,CancellationToken,Task<VoiceCommand>>? resolve=null) : IDisposable
+internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<CancellationToken,Task<string>>? recognitionOverride=null,Func<VoiceCue,Task>? cueOverride=null,Func<string,CancellationToken,Task<VoiceCommand>>? resolve=null,Func<VoiceRecording,CancellationToken,Task<string>>? transcribe=null,Func<bool>? cloudRecognitionEnabled=null,Func<CancellationToken,Task<VoiceRecording>>? recordingOverride=null) : IDisposable
 {
     private readonly object sync=new();
     private JsonObject state=new(){["phase"]="idle",["message"]="Скажите: «включи трек Династия»",["text"]=""};
@@ -60,17 +67,26 @@ internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<Cancel
         {
             try
             {
-                string text;
-                if(recognitionOverride!=null)text=await recognitionOverride(token);
+                var cloud=cloudRecognitionEnabled?.Invoke()==true&&transcribe!=null;
+                VoiceRecording recording;
+                if(recordingOverride!=null)recording=await recordingOverride(token);
+                else if(recognitionOverride!=null)recording=new(await recognitionOverride(token),[]);
                 else
                 {
                     if(!Directory.Exists(AppPaths.Model))throw new InvalidOperationException("Не найдена русская модель речи. Восстановите папку models рядом с приложением.");
                     Vosk.Vosk.SetLogLevel(-1);
                     model ??= new Model(AppPaths.Model);
                     token.ThrowIfCancellationRequested();
-                    text=await RecognizeAsync(model,token);
+                    recording=await RecognizeAsync(model,token,cloud);
                 }
                 token.ThrowIfCancellationRequested();
+                var text=recording.Text;
+                if(cloud&&recording.Wave.Length>44&&!IsQuickCommand(text))
+                {
+                    Set("recognizing","Распознаю русский и английский через Gemini…","");
+                    text=await transcribe!(recording,token);
+                }
+                if(string.IsNullOrWhiteSpace(text))throw new InvalidOperationException("Не удалось разобрать фразу. Повторите название и исполнителя.");
                 Set("recognizing","Распознаю команду…",text);
                 var command=resolve!=null?await resolve(text,token):VoiceParser.Parse(text);
                 token.ThrowIfCancellationRequested();
@@ -89,7 +105,18 @@ internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<Cancel
         if(Snapshot()["phase"]?.GetValue<string>()=="waiting")return;
         cancellation?.Cancel();
     }
-    private async Task<string> RecognizeAsync(Model loaded,CancellationToken token)
+    private static bool IsQuickCommand(string text)
+    {
+        try{return DeepSeekAssistant.IsQuickCommand(VoiceParser.Parse(text));}catch(ArgumentException){return false;}
+    }
+    internal static byte[] ToWave(byte[] pcm)
+    {
+        using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+        writer.Write("RIFF"u8);writer.Write(pcm.Length+36);writer.Write("WAVEfmt "u8);
+        writer.Write(16);writer.Write((short)1);writer.Write((short)1);writer.Write(16000);writer.Write(32000);writer.Write((short)2);writer.Write((short)16);
+        writer.Write("data"u8);writer.Write(pcm.Length);writer.Write(pcm);return stream.ToArray();
+    }
+    private async Task<VoiceRecording> RecognizeAsync(Model loaded,CancellationToken token,bool cloud)
     {
         var channel=Channel.CreateBounded<byte[]>(new BoundedChannelOptions(200){FullMode=BoundedChannelFullMode.DropOldest,SingleReader=true});
         using var recognizer=new VoskRecognizer(loaded,16000);
@@ -100,6 +127,9 @@ internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<Cancel
         var clock=Stopwatch.StartNew();
         var text="";
         var partial="";
+        using var pcm=new MemoryStream();
+        var heardSpeech=false;
+        var lastSpeech=TimeSpan.Zero;
         try
         {
             await (cueOverride ?? VoiceSounds.PlayAsync)(VoiceCue.Listening);
@@ -113,20 +143,29 @@ internal sealed class VoiceAssistant(Func<VoiceCommand,Task> execute,Func<Cancel
             {
                 await foreach(var data in channel.Reader.ReadAllAsync(limit.Token))
                 {
+                    if(cloud)
+                    {
+                        pcm.Write(data);
+                        double energy=0;for(var index=0;index+1<data.Length;index+=2){var sample=BitConverter.ToInt16(data,index);energy+=(double)sample*sample;}
+                        if(data.Length>1&&Math.Sqrt(energy/(data.Length/2))>350){heardSpeech=true;lastSpeech=clock.Elapsed;}
+                        if(heardSpeech&&clock.Elapsed-lastSpeech>TimeSpan.FromMilliseconds(1400))break;
+                        if(!heardSpeech&&clock.Elapsed.TotalSeconds>5)break;
+                    }
                     if(recognizer.AcceptWaveform(data,data.Length))
                     {
-                        text=JsonNode.Parse(recognizer.Result())?["text"]?.GetValue<string>()??"";
-                        if(text.Length>0)break;
+                        var segment=JsonNode.Parse(recognizer.Result())?["text"]?.GetValue<string>()??"";
+                        text=(text+" "+segment).Trim();
+                        if(text.Length>0&&!cloud)break;
                     }
                     partial=JsonNode.Parse(recognizer.PartialResult())?["partial"]?.GetValue<string>()??"";
-                    if(clock.Elapsed.TotalSeconds>5 && partial.Length==0)break;
+                    if(!cloud&&clock.Elapsed.TotalSeconds>5 && partial.Length==0)break;
                 }
             }
             catch(OperationCanceledException) when(!token.IsCancellationRequested) { }
             token.ThrowIfCancellationRequested();
-            if(text.Length==0)text=JsonNode.Parse(recognizer.FinalResult())?["text"]?.GetValue<string>()??"";
-            if(text.Length==0)throw new InvalidOperationException("Не услышал команду. Проверьте микрофон по умолчанию и повторите.");
-            return text;
+            text=(text+" "+(JsonNode.Parse(recognizer.FinalResult())?["text"]?.GetValue<string>()??"")).Trim();
+            if(text.Length==0&&(!cloud||!heardSpeech))throw new InvalidOperationException("Не услышал команду. Проверьте микрофон по умолчанию и повторите.");
+            return new(text,cloud?ToWave(pcm.ToArray()):[]);
         }
         finally
         {

@@ -52,7 +52,7 @@ internal sealed class MainForm : Form
             JsonObject context=new();
             await OnUiAsync(()=>{context=(JsonObject)snapshot.DeepClone();context["service"]=settings.Service;return Task.CompletedTask;});
             return await assistant.ResolveAsync(text,context,token);
-        });
+        },(recording,token)=>assistant.TranscribeAsync(recording,token),()=>assistant.AudioRecognitionEnabled);
         voice.Changed+=()=>{if(!IsDisposed&&IsHandleCreated)BeginInvoke(()=>VoiceChanged());};
         Load+=async(_,_)=>await InitializeAsync();
         Shown+=(_,_)=>{if(startHidden)Hide();};
@@ -192,6 +192,7 @@ internal sealed class MainForm : Form
                 var apiKey=Arg(0)?.GetValue<string>()??"";
                 if(!string.IsNullOrWhiteSpace(apiKey))assistant.SaveKey(apiKey);
                 var enabled=Arg(1)?.GetValue<bool>()??false;
+                if(assistant.Provider=="gemini")assistant.SetAudioOptions(Arg(2)?.GetValue<bool>()??false,Arg(3)?.GetValue<string>());
                 assistant.SetEnabled(enabled);
                 return new{ok=true,deepseek=assistant.Status()};
             case "test_deepseek":

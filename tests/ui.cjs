@@ -28,7 +28,7 @@ const {pathToFileURL} = require('node:url');
      save_settings:async(b)=>{window.saved=b;return {ok:true};},
      set_yandex_domain:async(domain)=>{window.yandexDomain=domain;return {ok:true};},
      set_assistant_provider:async(provider)=>{window.assistantProvider=provider;return {ok:true,deepseek:{provider,enabled:false,configured:false}};},
-     save_deepseek:async(key,enabled)=>{window.assistantKey=key;window.assistantEnabled=enabled;return {ok:true,deepseek:{provider:window.assistantProvider,enabled,configured:true,model:'gemini-3.5-flash-lite'}};},
+     save_deepseek:async(key,enabled,audio,hints)=>{window.assistantKey=key;window.assistantEnabled=enabled;window.audioEnabled=audio;window.artistHints=hints;return {ok:true,deepseek:{provider:window.assistantProvider,enabled,configured:true,model:'gemini-3.5-flash-lite',audio_enabled:audio,artist_hints:hints}};},
      test_deepseek:async()=>({ok:true,deepseek:{provider:window.assistantProvider,enabled:true,configured:true,model:'gemini-3.5-flash-lite'}}),
      delete_deepseek:async()=>({ok:true,deepseek:{provider:window.assistantProvider,enabled:false,configured:false}}),
      hide:async()=>({ok:true}),quit:async()=>({ok:true}),set_topmost:async()=>({ok:true}),set_startup:async()=>({ok:true})
@@ -59,6 +59,7 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
  assert.equal(await page.locator('#deepseek-key').getAttribute('type'),'password');
+ assert.equal(await page.locator('#gemini-audio').isChecked(),false,'Cloud audio is opt-in');
  await page.locator('#deepseek-key').fill('unsaved-key');
  await page.locator('#assistant-provider').selectOption('gemini');
  await page.waitForFunction(()=>window.assistantProvider==='gemini');
@@ -67,8 +68,12 @@ const {pathToFileURL} = require('node:url');
  await page.screenshot({path:'tests/assistant-preview.png'});
  await page.locator('#deepseek-key').fill('test-key-not-a-real-secret');
  await page.locator('#deepseek-enabled').check();
+ await page.locator('#gemini-audio').check();
+ await page.locator('#voice-artist-hints').fill('madk1d (мэд кид); VILLIAN');
  await page.locator('#save-deepseek').click();
  await page.waitForFunction(()=>window.assistantEnabled===true);
+ assert.equal(await page.evaluate(()=>window.audioEnabled),true);
+ assert.ok((await page.evaluate(()=>window.artistHints)).includes('madk1d'));
  assert.equal(await page.locator('#deepseek-key').inputValue(),'','Saved key is cleared from DOM');
  await page.locator('#test-deepseek').click();
  await page.waitForFunction(()=>document.getElementById('deepseek-status').textContent.includes('проверено'));

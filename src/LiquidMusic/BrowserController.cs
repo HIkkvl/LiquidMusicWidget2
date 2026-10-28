@@ -214,7 +214,7 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     internal static bool VoiceMatch(JsonObject snapshot,string query)
     {
-        static string Normalize(string value)=>Regex.Replace(value.ToLowerInvariant().Replace('ё','е'),@"[^\p{L}\p{N}]+"," ").Trim();
+        static string Normalize(string value)=>MusicNames.Normalize(value);
         var text=" "+Normalize((snapshot["title"]?.GetValue<string>()??"")+" "+(snapshot["artist"]?.GetValue<string>()??""))+" ";
         return Normalize(query).Split(' ',StringSplitOptions.RemoveEmptyEntries).All(word=>text.Contains(" "+word+" "));
     }

@@ -114,7 +114,7 @@ let browserSetupPending=false;
 function renderAssistantSettings() {
   const section=document.createElement('section');section.className='overlay-options';
   const title=document.createElement('h3');title.textContent='Умный помощник · Gemini / DeepSeek';
-  const note=document.createElement('p');note.textContent='Понимает свободные фразы и уточнения, учитывает текущий трек. Текст сложных запросов, данные плеера и короткая история отправляются в выбранный сервис. Gemini доступен в рамках Free Tier с квотами; доступность зависит от региона и аккаунта. На Free Tier данные могут использоваться Google для улучшения продуктов. DeepSeek требует API-баланс. Голос распознаётся локально. Простые команды работают без интернета. Ответы показаны текстом.';
+  const note=document.createElement('p');note.textContent='Понимает свободные фразы и уточнения, учитывает текущий трек. Текст сложных запросов, данные плеера и короткая история отправляются в выбранный сервис. Gemini доступен в рамках Free Tier с квотами; доступность зависит от региона и аккаунта. На Free Tier данные могут использоваться Google для улучшения продуктов. DeepSeek требует API-баланс. Простые команды работают без интернета. Ответы показаны текстом.';
   const provider=document.createElement('select');provider.id='assistant-provider';provider.setAttribute('aria-label','Сервис умного помощника');
   for(const [value,label] of [['gemini','Gemini · Google'],['deepseek','DeepSeek']]){const option=document.createElement('option');option.value=value;option.textContent=label;provider.append(option);}
   const enabledLabel=document.createElement('label');enabledLabel.className='overlay-enabled';
@@ -125,21 +125,27 @@ function renderAssistantSettings() {
   const save=document.createElement('button');save.type='button';save.id='save-deepseek';save.textContent='Сохранить помощника';
   const test=document.createElement('button');test.type='button';test.id='test-deepseek';test.textContent='Проверить подключение';
   const remove=document.createElement('button');remove.type='button';remove.id='delete-deepseek';remove.textContent='Удалить ключ';
-  function paint(){const s=configuration.deepseek||{};provider.value=s.provider||'deepseek';enabled.checked=!!s.enabled;key.placeholder=s.configured?'Ключ сохранён — введите новый для замены':'API-ключ '+(provider.value==='gemini'?'Gemini':'DeepSeek');status.textContent=s.configured?(s.enabled?'Включён · ':'Ключ сохранён · ')+(s.model||provider.value):'Ключ не настроен';test.disabled=remove.disabled=!s.configured;}
+  const audioLabel=document.createElement('label');audioLabel.className='overlay-enabled';
+  const audio=document.createElement('input');audio.type='checkbox';audio.id='gemini-audio';
+  audioLabel.append(audio,document.createTextNode('Русский + English: распознавать запись через Gemini'));
+  const audioNote=document.createElement('p');audioNote.textContent='По умолчанию звук распознаёт локальная русская модель Vosk. При включении этого режима короткие записи музыкальных просьб отправляются Google и расходуют квоту Gemini. Это помогает с английскими названиями и артистами; точные простые команды остаются локальными.';
+  const hintsLabel=document.createElement('label');hintsLabel.textContent='Подсказки имён артистов';
+  const hints=document.createElement('textarea');hints.id='voice-artist-hints';hints.rows=2;hints.maxLength=1000;hints.setAttribute('aria-label','Подсказки имён артистов');hintsLabel.append(hints);
+  function paint(){const s=configuration.deepseek||{};provider.value=s.provider||'deepseek';enabled.checked=!!s.enabled;audio.checked=!!s.audio_enabled;audio.disabled=hints.disabled=provider.value!=='gemini';hints.value=s.artist_hints??'madk1d (мэд кид, мэдкид, мэт кид); VILLIAN';key.placeholder=s.configured?'Ключ сохранён — введите новый для замены':'API-ключ '+(provider.value==='gemini'?'Gemini':'DeepSeek');status.textContent=s.configured?(s.enabled?'Включён · ':'Ключ сохранён · ')+(s.model||provider.value):'Ключ не настроен';test.disabled=remove.disabled=!s.configured;}
   async function update(method,...args){
-    save.disabled=test.disabled=remove.disabled=enabled.disabled=provider.disabled=key.disabled=true;
+    save.disabled=test.disabled=remove.disabled=enabled.disabled=provider.disabled=key.disabled=audio.disabled=hints.disabled=true;
     try {
       const result=await invoke(method,...args);
       if(result.deepseek)configuration.deepseek=result.deepseek;
       if(result.ok){key.value='';paint();if(method==='test_deepseek')status.textContent='Подключение проверено · '+configuration.deepseek.model;}
       else {paint();showSettingsError(result.error);}
-    } finally {save.disabled=enabled.disabled=provider.disabled=key.disabled=false;test.disabled=remove.disabled=!configuration.deepseek?.configured;}
+    } finally {save.disabled=enabled.disabled=provider.disabled=key.disabled=false;audio.disabled=hints.disabled=provider.value!=='gemini';test.disabled=remove.disabled=!configuration.deepseek?.configured;}
   }
-  save.addEventListener('click',()=>update('save_deepseek',key.value,enabled.checked));
+  save.addEventListener('click',()=>update('save_deepseek',key.value,enabled.checked,audio.checked,hints.value));
   test.addEventListener('click',()=>update('test_deepseek'));
   remove.addEventListener('click',()=>update('delete_deepseek'));
   provider.addEventListener('change',()=>update('set_assistant_provider',provider.value));
-  section.append(title,note,provider,enabledLabel,key,status,save,test,remove);$('shortcut-rows').append(section);paint();
+  section.append(title,note,provider,enabledLabel,key,audioLabel,audioNote,hintsLabel,status,save,test,remove);$('shortcut-rows').append(section);paint();
 }
 function renderBrowserSettings() {
   const section=document.createElement('section');section.className='overlay-options';

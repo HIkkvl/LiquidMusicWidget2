@@ -22,6 +22,7 @@ internal static class DeepSeekTests
             Endpoints.Add(request.RequestUri!);
             if(request.Method==HttpMethod.Get)return new(HttpStatusCode.OK){Content=new StringContent(request.RequestUri!.AbsolutePath.EndsWith("/models",StringComparison.Ordinal)?JsonSerializer.Serialize(new{data=Models.Select(id=>new{id})}):JsonSerializer.Serialize(new{is_available=BalanceAvailable}))};
             if(request.Content!=null)Request=JsonNode.Parse(await request.Content.ReadAsStringAsync(token))!.AsObject();
+            if(request.RequestUri!.AbsolutePath.EndsWith(":generateContent",StringComparison.Ordinal))return new(Status){Content=new StringContent(JsonSerializer.Serialize(new{candidates=new[]{new{finishReason="STOP",content=new{parts=new[]{new{text="{\"text\":\"play madk1d Rehab\"}"}}}}}}),Encoding.UTF8,"application/json")};
             return new(Status){Content=new StringContent(JsonSerializer.Serialize(new{choices=new[]{new{finish_reason="stop",message=new{content=Intent}}}}),Encoding.UTF8,"application/json")};
         }
     }
@@ -77,6 +78,33 @@ internal static class DeepSeekTests
             command=await assistant.ResolveAsync("Сделай потише",new(){["volume"]=0.5},default);
             Check(command.Volume==0.4&&handler.Request!["thinking"]==null&&handler.Request["reasoning_effort"]?.GetValue<string>()=="minimal","Gemini-compatible request");
             Check(handler.Request!["messages"]!.AsArray().Count==2,"Provider switch clears previous conversation");
+            var wave=VoiceAssistant.ToWave(new byte[32000]);
+            Check(BitConverter.ToInt32(wave,24)==16000&&BitConverter.ToInt32(wave,40)==32000,"Valid 16kHz PCM WAV in memory");
+            var recording=new VoiceRecording("включи мэтт кид греха",wave);
+            var beforeAudio=handler.Calls;
+            try{await assistant.TranscribeAsync(recording,default);throw new Exception("Audio uploaded without opt-in");}
+            catch(InvalidOperationException error){Check(error.Message.Contains("Включите")&&handler.Calls==beforeAudio,"Audio mode requires explicit opt-in");}
+            assistant.SetAudioOptions(true,"madk1d (мэд кид)");
+            Check(await assistant.TranscribeAsync(recording,default)=="play madk1d Rehab","Audio transcription preserves artist spelling");
+            Check(handler.Request!["contents"]?[0]?["parts"]?[1]?["inlineData"]?["mimeType"]?.GetValue<string>()=="audio/wav","Native Gemini audio format");
+            Check(!handler.Request.ToJsonString().Contains(recording.Text),"Corrupted local transcript does not bias audio recognition");
+            Check(BrowserController.VoiceMatch(new(){["title"]="РЕХАБ",["artist"]="madk1d"},"madk1d Rehab"),"Latin title matches Cyrillic catalogue title");
+            Check(!BrowserController.VoiceMatch(new(){["title"]="РЕХАБ",["artist"]="Другой артист"},"madk1d Rehab"),"Artist remains required when specified");
+            Check(VoiceParser.Parse("next track").Action=="next"&&VoiceParser.Parse("play madk1d Rehab").Query=="madk1d Rehab","English command parsing");
+            async Task CheckVoiceAudio(bool cloud,string local,bool shouldUpload)
+            {
+                var complete=new TaskCompletionSource<VoiceCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var uploads=0;
+                using var voice=new VoiceAssistant(command=>{complete.TrySetResult(command);return Task.CompletedTask;},cueOverride:_=>Task.CompletedTask,
+                    resolve:(text,_)=>Task.FromResult(VoiceParser.Parse(text)),transcribe:(_,_)=>{uploads++;return Task.FromResult("play madk1d Rehab");},
+                    cloudRecognitionEnabled:()=>cloud,recordingOverride:_=>Task.FromResult(new VoiceRecording(local,wave)));
+                voice.Start();var chosen=await complete.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                Check(uploads==(shouldUpload?1:0),"Audio upload routing respects mode and quick commands");
+                if(shouldUpload)Check(chosen.Query=="madk1d Rehab","Corrected transcription reaches command execution");
+            }
+            await CheckVoiceAudio(true,recording.Text,true);
+            await CheckVoiceAudio(true,"пауза",false);
+            await CheckVoiceAudio(false,recording.Text,false);
             handler.Status=HttpStatusCode.TooManyRequests;
             try{await assistant.ResolveAsync("Что играет?",new(),default);throw new Exception("Quota error accepted");}
             catch(InvalidOperationException error){Check(error.Message.Contains("квота")&&error.Message.Contains("Gemini"),"Gemini quota error explained");}
@@ -146,6 +174,23 @@ internal static class DeepSeekTests
             var intent=await assistant.ResolveAsync("Слишком громко, сделай чуть потише",new(){["connected"]=true,["volume"]=0.6,["title"]="Династия",["artist"]="VILLIAN"},default);
             Check(intent.Action=="volume"&&intent.Volume<0.6,"Live volume intent");
             Console.WriteLine("PASS live "+assistant.Provider+": "+intent.Action+" "+intent.Volume);return 0;
+        }
+        catch(Exception error){Console.Error.WriteLine(error.Message);return 1;}
+    }
+    public static async Task<int> AudioAsync(string file)
+    {
+        try
+        {
+            var settings=new Settings();
+            // Explicit CLI test on a supplied sample, not a saved preference.
+            settings.Value["gemini_audio"]=true;
+            using var assistant=new DeepSeekAssistant(settings);
+            var text=await assistant.TranscribeAsync(new("",File.ReadAllBytes(file)),default);
+            var command=await assistant.ResolveAsync(text,new(),default);
+            Console.WriteLine("Synthetic audio transcript: "+text);
+            Console.WriteLine("Resolved action: "+command.Action+"; query: "+command.Query);
+            Check(command.Action=="search_play"&&MusicNames.Normalize(command.Query??"").Contains("madk1d")&&MusicNames.Normalize(command.Query??"").Contains("rehab"),"Expected madk1d Rehab from the English sample");
+            return 0;
         }
         catch(Exception error){Console.Error.WriteLine(error.Message);return 1;}
     }

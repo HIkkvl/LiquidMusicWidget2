@@ -76,6 +76,10 @@ internal static class SelfTests
                 Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"}),"Regional track controls: "+domain);
             }
             passed.Add("Track controls support ru, kz and com regional domains");
+            await page.EvaluateAsync("()=>document.body.insertAdjacentHTML('beforeend',`<div data-test-track='rehab'><button aria-label='Воспроизведение'>Play</button><a href='/album/1/track/2'>РЕХАБ</a><a href='/artist/3'>madk1d</a></div>`)");
+            Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="madk1d Rehab"}),"Mixed English artist and Cyrillic track title");
+            Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>el.parentElement.dataset.testTrack==='rehab'"),"Artist-qualified query picks the right track card");
+            Check(!await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="OtherArtist Rehab"}),"Do not ignore a mismatched artist");
             var target=await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"});
             Check(target,"Real Yandex track card play target");
             Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>!!el.closest('[class*=EntityCard_root]').querySelector('a[href*=\"/track/\"]')"),"Artist exclusion");

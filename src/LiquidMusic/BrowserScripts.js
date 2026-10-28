@@ -1,5 +1,7 @@
 ({action, service, command, query, volume}) => {
-  const norm = text => String(text || '').toLowerCase().replace(/ё/g,'е').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const cyrillic='абвгдеёжзийклмнопрстуфхцчшщъыьэюя';
+  const latin=['a','b','v','g','d','e','e','zh','z','i','y','k','l','m','n','o','p','r','s','t','u','f','h','ts','ch','sh','shch','','y','','e','yu','ya'];
+  const norm = text => String(text || '').toLowerCase().replace(/[а-яё]/g,c=>latin[cyrillic.indexOf(c)]).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
   const text = selectors => {
     for (const selector of selectors) {
       const el=document.querySelector(selector);
@@ -69,7 +71,8 @@
         const paths=new Set([...row.querySelectorAll('a[href*="/track/"],a[href*="/tracks/"]')].map(el=>new URL(el.href,location.origin).pathname));
         if(paths.size>1)break;
         if(seen.has(row))continue;seen.add(row);
-        const full=' '+norm(link.textContent+' '+row.innerText+' '+row.getAttribute('aria-label'))+' ';
+        const artistNames=[...row.querySelectorAll('a[href*="/artist/"]')].map(el=>el.textContent).join(' ');
+        const full=' '+norm(link.textContent+' '+artistNames+' '+row.innerText+' '+row.getAttribute('aria-label'))+' ';
         if(!words.every(word=>full.includes(' '+word+' ')))continue;
         const button=[...row.querySelectorAll('button,[role="button"]')].find(el=>{
           if(!enabled(el)||/пауза|pause|нравится|like|меню|menu/i.test(label(el)))return false;
