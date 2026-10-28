@@ -1,7 +1,29 @@
 ({action, service, command, query, volume}) => {
   const cyrillic='абвгдеёжзийклмнопрстуфхцчшщъыьэюя';
   const latin=['a','b','v','g','d','e','e','zh','z','i','y','k','l','m','n','o','p','r','s','t','u','f','h','ts','ch','sh','shch','','y','','e','yu','ya'];
-  const norm = text => String(text || '').toLowerCase().replace(/[а-яё]/g,c=>latin[cyrillic.indexOf(c)]).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const months={январь:'января',января:'января',февраль:'февраля',февраля:'февраля',март:'марта',марта:'марта',апрель:'апреля',апреля:'апреля',май:'мая',мая:'мая',июнь:'июня',июня:'июня',июль:'июля',июля:'июля',август:'августа',августа:'августа',сентябрь:'сентября',сентября:'сентября',октябрь:'октября',октября:'октября',ноябрь:'ноября',ноября:'ноября',декабрь:'декабря',декабря:'декабря'};
+  const days={один:1,одно:1,одного:1,два:2,три:3,четыре:4,пять:5,шесть:6,семь:7,восемь:8,девять:9,десять:10,одиннадцать:11,двенадцать:12,тринадцать:13,четырнадцать:14,пятнадцать:15,шестнадцать:16,семнадцать:17,восемнадцать:18,девятнадцать:19,двадцать:20,тридцать:30};
+  const ordinals={перв:1,втор:2,четверт:4,пят:5,шест:6,седьм:7,восьм:8,девят:9,десят:10,одиннадцат:11,двенадцат:12,тринадцат:13,четырнадцат:14,пятнадцат:15,шестнадцат:16,семнадцат:17,восемнадцат:18,девятнадцат:19,двадцат:20,тридцат:30};
+  const day=word=>{
+    const numeric=/^(\d{1,2})(?:го|й|е|ое|ый|ого)?$/.exec(word);
+    if(numeric&&+numeric[1]>=1&&+numeric[1]<=31)return +numeric[1];
+    if(Object.hasOwn(days,word))return days[word];
+    if(/^трет(?:ий|ье|ьего|ьему|ьим|ьем|ья|ью|ьей)$/.test(word))return 3;
+    const ordinal=/^(.+?)(?:ый|ой|ое|ого|ому|ым|ом|ая|ую)$/.exec(word);
+    return ordinal&&Object.hasOwn(ordinals,ordinal[1])?ordinals[ordinal[1]]:0;
+  };
+  const norm = text => {
+    const words=String(text||'').toLowerCase().replace(/ё/g,'е').replace(/[^\p{L}\p{N}]+/gu,' ').trim().split(/\s+/);
+    for(let i=1;i<words.length;i++){
+      if(!Object.hasOwn(months,words[i]))continue;
+      let number=day(words[i-1]);
+      if(!number&&i>=2&&['го','й','е'].includes(words[i-1])){number=day(words[i-2]);if(number)words[i-2]='';}
+      if(!number)continue;
+      if(i>=2&&[20,30].includes(day(words[i-2]))&&number<10){const combined=day(words[i-2])+number;if(combined>31)continue;number=combined;words[i-2]='';}
+      words[i-1]=String(number);words[i]=months[words[i]];
+    }
+    return words.join(' ').replace(/[а-яё]/g,c=>latin[cyrillic.indexOf(c)]).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  };
   const text = selectors => {
     for (const selector of selectors) {
       const el=document.querySelector(selector);
@@ -61,9 +83,10 @@
     if(!button||!enabled(button))return {found:false};
     button.setAttribute('data-liquid-control','target');return {found:true};
   }
-  if(action==='search_target'||action==='search_click') {
+  if(action==='search_target'||action==='search_click'||action==='search_match') {
     const links=[...document.querySelectorAll('a[href*="/track/"],a[href*="/tracks/"]')].filter(el=>!el.closest(playerSelector));
-    const words=norm(query).split(' ');
+    const words=norm(query).split(' ').filter(Boolean);
+    if(!words.length)return false;
     const seen=new Set();
     for(const link of links) {
       let row=link.parentElement;
@@ -74,6 +97,7 @@
         const artistNames=[...row.querySelectorAll('a[href*="/artist/"]')].map(el=>el.textContent).join(' ');
         const full=' '+norm(link.textContent+' '+artistNames+' '+row.innerText+' '+row.getAttribute('aria-label'))+' ';
         if(!words.every(word=>full.includes(' '+word+' ')))continue;
+        if(action==='search_match')return true;
         const button=[...row.querySelectorAll('button,[role="button"]')].find(el=>{
           if(!enabled(el)||/пауза|pause|нравится|like|меню|menu/i.test(label(el)))return false;
           if(patterns.play.test(label(el)))return true;

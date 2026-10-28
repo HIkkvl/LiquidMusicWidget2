@@ -216,7 +216,8 @@ internal sealed class BrowserController : IAsyncDisposable
     {
         static string Normalize(string value)=>MusicNames.Normalize(value);
         var text=" "+Normalize((snapshot["title"]?.GetValue<string>()??"")+" "+(snapshot["artist"]?.GetValue<string>()??""))+" ";
-        return Normalize(query).Split(' ',StringSplitOptions.RemoveEmptyEntries).All(word=>text.Contains(" "+word+" "));
+        var words=Normalize(query).Split(' ',StringSplitOptions.RemoveEmptyEntries);
+        return words.Length>0&&words.All(word=>text.Contains(" "+word+" "));
     }
     internal static async Task SearchYandexAsync(IPage page,string query,string script)
     {
@@ -263,7 +264,8 @@ internal sealed class BrowserController : IAsyncDisposable
             }
             await Task.Delay(350);
         }
-        throw new InvalidOperationException("Не найдена доступная кнопка запуска трека «"+query+"». Проверьте результаты поиска в музыкальной вкладке.");
+        var matched=await page.EvaluateAsync<bool>(script,new{action="search_match",service="yandex",query});
+        throw new InvalidOperationException(matched?"Найден трек «"+query+"», но его кнопка запуска недоступна или сайт не обработал нажатие. Закройте диалог в музыкальной вкладке и повторите.":"В результатах поиска не найдено точное совпадение названия и исполнителя «"+query+"». Уточните запрос.");
     }
     internal static async Task<bool> ResumeYandexAsync(IPage page,string script)
     {

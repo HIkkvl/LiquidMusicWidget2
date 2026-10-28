@@ -44,6 +44,14 @@ internal static class SelfTests
             passed.Add("Windows default-browser parsing, unsupported browser, shortcut preservation/idempotence");
             Check(BrowserController.VoiceMatch(new(){["title"]="ДИНАСТИЯ",["artist"]="VILLIAN, madk1d"},"Династия"),"Playback confirmation");
             Check(!BrowserController.VoiceMatch(new(){["title"]="Династия Ди"},"Династия Исполнитель"),"Wrong track rejected");
+            foreach(var spoken in new[]{"первого мая","первое мая","первый май","одного мая","1-го мая","1го мая"})
+                Check(BrowserController.VoiceMatch(new(){["title"]="1 мая",["artist"]="madk1d, CUPSIZE"},"madk1d "+spoken),"Spoken date matches numeric title: "+spoken);
+            Check(MusicNames.Normalize("двадцать первого июня")==MusicNames.Normalize("21 июня"),"Compound spoken day");
+            Check(MusicNames.Normalize("тридцать первого декабря")==MusicNames.Normalize("31 декабря"),"Last day of month");
+            Check(!BrowserController.VoiceMatch(new(){["title"]="2 мая",["artist"]="madk1d"},"madk1d первого мая"),"Wrong date rejected");
+            Check(!BrowserController.VoiceMatch(new(){["title"]="1 мая",["artist"]="OtherArtist"},"madk1d первого мая"),"Date normalization preserves artist requirement");
+            Check(MusicNames.Normalize("первого снега")!=MusicNames.Normalize("1 снега"),"Do not convert ordinary words outside dates");
+            Check(!BrowserController.VoiceMatch(new(){["title"]="1 мая"},"---"),"Empty normalized query rejected");
             passed.Add("Confirmed track matching");
             Vosk.Vosk.SetLogLevel(-1);
             using(var model=new Model(AppPaths.Model))
@@ -80,6 +88,16 @@ internal static class SelfTests
             Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="madk1d Rehab"}),"Mixed English artist and Cyrillic track title");
             Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>el.parentElement.dataset.testTrack==='rehab'"),"Artist-qualified query picks the right track card");
             Check(!await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="OtherArtist Rehab"}),"Do not ignore a mismatched artist");
+            await page.EvaluateAsync("()=>document.body.insertAdjacentHTML('beforeend',`<div data-test-track='may'><button aria-label='Воспроизведение'>Play</button><a href='/album/1/track/4'>1 мая</a><a href='/artist/3'>madk1d</a><a href='/artist/5'>CUPSIZE</a></div>`)");
+            foreach(var spoken in new[]{"первого мая","первое мая","первый май","1-го мая"})
+            {
+                Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="madk1d "+spoken}),"Spoken date selects numeric track: "+spoken);
+                Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>el.parentElement.dataset.testTrack==='may'"),"Selected correct artist and date");
+            }
+            Check(!await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="madk1d второго мая"}),"Wrong date must not select first result");
+            await page.EvaluateAsync("()=>document.querySelector('[data-test-track=may] button').remove()");
+            Check(await page.EvaluateAsync<bool>(script,new{action="search_match",service="yandex",query="madk1d первого мая"}),"Track match is distinct from button availability");
+            Check(!await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="madk1d первого мая"}),"Missing button is reported separately");
             var target=await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"});
             Check(target,"Real Yandex track card play target");
             Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>!!el.closest('[class*=EntityCard_root]').querySelector('a[href*=\"/track/\"]')"),"Artist exclusion");
