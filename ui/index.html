@@ -45,19 +45,7 @@
     <button type="button" class="icon-button" id="open-music" aria-label="Открыть музыку в браузере по умолчанию" title="Открыть музыку в браузере по умолчанию"><svg><use href="#i-music"/></svg></button>
   </section>
   <section class="genres-section" aria-label="Музыкальные жанры"><div class="section-heading"><h2>Жанры</h2><span>Найдите своё звучание</span></div><div id="genres" class="genres" tabindex="0" aria-label="Список жанров"></div></section>
-  <section class="preferences glass" aria-label="Параметры виджета">
-    <label class="preference"><svg><use href="#i-play"/></svg><span>Автозапуск с Windows</span><input id="startup" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
-    <label class="preference"><svg><use href="#i-window"/></svg><span>Поверх всех окон</span><input id="on-top" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
-    <div class="quality-row" role="group" aria-label="Качество отображения">
-      <svg><use href="#i-gauge"/></svg>
-      <div class="quality-tabs">
-        <button class="quality-tab" data-quality="high" type="button">Высокое</button>
-        <button class="quality-tab" data-quality="medium" type="button">Среднее</button>
-        <button class="quality-tab" data-quality="low" type="button">Низкое</button>
-      </div>
-    </div>
-    <label class="preference"><svg><use href="#i-glass"/></svg><span>Жидкое стекло</span><input id="fx-glass" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
-    <label class="preference" id="fx-clear-row"><svg><use href="#i-window"/></svg><span>Прозрачное окно</span><input id="fx-clear" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+  <section class="preferences glass" aria-label="Громкость музыки">
     <div class="volume-section"><label class="preference" for="volume"><svg><use href="#i-volume"/></svg><span>Громкость</span><span class="volume-value" id="volume-value">—</span></label><input type="range" id="volume" aria-label="Громкость музыки" min="0" max="100" value="100" disabled></div>
   </section>
   <footer class="footer glass">
@@ -75,7 +63,21 @@
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
 <dialog id="settings-dialog">
-  <div class="settings-panel glass"><div class="settings-heading"><div><span class="eyebrow">ПОД ВАШ РИТМ</span><h2>Настройки виджета</h2></div><button class="icon-button" id="dismiss-settings" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></div><p class="settings-intro">Управляйте музыкой из любой программы,<br>даже когда виджет скрыт.</p><div id="shortcut-rows" class="shortcut-rows"></div><section class="wheel-settings" aria-label="Громкость колёсиком мыши">
+  <div class="settings-panel glass"><div class="settings-heading"><div><span class="eyebrow">ПОД ВАШ РИТМ</span><h2>Настройки виджета</h2></div><button class="icon-button" id="dismiss-settings" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></div><p class="settings-intro">Управляйте музыкой из любой программы,<br>даже когда виджет скрыт.</p><section class="window-settings" aria-label="Окно и оформление">
+    <h3>Окно и оформление</h3>
+    <label class="preference"><svg><use href="#i-play"/></svg><span>Автозапуск с Windows</span><input id="startup" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
+    <label class="preference"><svg><use href="#i-window"/></svg><span>Поверх всех окон</span><input id="on-top" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+    <div class="quality-row" role="group" aria-label="Качество отображения">
+      <svg><use href="#i-gauge"/></svg>
+      <div class="quality-tabs">
+        <button class="quality-tab" data-quality="high" type="button">Высокое</button>
+        <button class="quality-tab" data-quality="medium" type="button">Среднее</button>
+        <button class="quality-tab" data-quality="low" type="button">Низкое</button>
+      </div>
+    </div>
+    <label class="preference"><svg><use href="#i-glass"/></svg><span>Жидкое стекло</span><input id="fx-glass" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+    <label class="preference" id="fx-clear-row"><svg><use href="#i-window"/></svg><span>Прозрачное окно</span><input id="fx-clear" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+  </section><div id="shortcut-rows" class="shortcut-rows"></div><section class="wheel-settings" aria-label="Громкость колёсиком мыши">
   <h3>Громкость колёсиком мыши</h3>
   <p class="island-hint">Зажмите выбранную клавишу и крутите колёсико — громкость изменится из любой программы, даже когда виджет скрыт.</p>
   <label class="preference"><svg><use href="#i-volume"/></svg><span>Включить колёсико</span><input id="wheel-enabled" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>

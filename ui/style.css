@@ -311,11 +311,11 @@ select{
 .modifier input{accent-color:var(--indigo)}
 
 /* колёсико громкости, уведомления и остров */
-.wheel-settings,.overlay-options,.island-settings{
+.window-settings,.wheel-settings,.overlay-options,.island-settings{
   display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--radius-s);
   background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
 }
-.wheel-settings h3,.overlay-options h3{margin:0;font-size:13px;font-weight:600;color:var(--text)}
+.window-settings h3,.wheel-settings h3,.overlay-options h3{margin:0;font-size:13px;font-weight:600;color:var(--text)}
 .island-hint,.overlay-options p{margin:0;font-size:11.5px;color:var(--text-2);line-height:1.5}
 .wheel-options,.overlay-selects{display:flex;gap:10px;flex-wrap:wrap}
 .wheel-options label,.overlay-selects label{
