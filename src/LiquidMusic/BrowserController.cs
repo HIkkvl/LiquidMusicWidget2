@@ -161,9 +161,7 @@ internal sealed class BrowserController : IAsyncDisposable
                 if(action=="wave"&&(string.IsNullOrWhiteSpace(query)||query.Length>100))throw new ArgumentException("Выберите подборку Моей волны.");
                 var options=await WaveOptionsAsync(page,script,action=="wave"?query:null);
                 if(action=="wave_list")return new(){["waves"]=JsonNode.Parse(options.GetRawText()),["wave_origin"]=new Uri(page.Url).GetLeftPart(UriPartial.Authority)};
-                var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service,query});
-                if(!target.GetProperty("found").GetBoolean())throw new InvalidOperationException("Подборка больше недоступна. Обновите список Моей волны.");
-                if(!await ClickControlAsync(page,"wave"))throw new InvalidOperationException("Подборка перекрыта. Закройте диалог в музыкальной вкладке и повторите.");
+                if(!await ClickWaveAsync(page,script,query!))throw new InvalidOperationException("Не удалось нажать подборку. Обновите список; если в музыкальной вкладке открыт диалог, закройте его.");
                 for(var i=0;i<40;i++)
                 {
                     await Task.Delay(250);
@@ -315,18 +313,24 @@ internal sealed class BrowserController : IAsyncDisposable
         // pointer input after synchronous geometry and hit testing instead.
         const string pointScript="""
             ({marker,check})=>{
-              const el=document.querySelector('[data-liquid-control="'+CSS.escape(marker)+'"]');
+              const el=document.querySelector(marker==='wave-card'?'[data-liquid-wave-card]':'[data-liquid-control="'+CSS.escape(marker)+'"]');
               if(!el)return null;
               if(!check)el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
-              const rect=el.getBoundingClientRect();
-              const left=Math.max(0,rect.left),right=Math.min(innerWidth,rect.right),top=Math.max(0,rect.top),bottom=Math.min(innerHeight,rect.bottom);
-              if(right<=left||bottom<=top)return null;
-              const x=(left+right)/2,y=(top+bottom)/2;
-              if(check){
-                const style=getComputedStyle(el),hit=document.elementFromPoint(x,y);
-                if(style.visibility==='hidden'||style.display==='none'||el.disabled||el.getAttribute('aria-disabled')==='true'||!hit||!(hit===el||el.contains(hit)))return null;
+              const style=getComputedStyle(el);
+              if(check&&(style.visibility==='hidden'||style.display==='none'||el.disabled||el.getAttribute('aria-disabled')==='true'))return null;
+              // Carousels clip and transform cards; inline links can have several
+              // rectangles. Their bounding-box centre need not be clickable.
+              for(const rect of el.getClientRects()){
+                const left=Math.max(0,rect.left),right=Math.min(innerWidth,rect.right),top=Math.max(0,rect.top),bottom=Math.min(innerHeight,rect.bottom);
+                if(right<=left||bottom<=top)continue;
+                for(const [fx,fy] of [[.5,.5],[.25,.5],[.75,.5],[.5,.25],[.5,.75],[.25,.25],[.75,.25],[.25,.75],[.75,.75]]){
+                  const x=left+(right-left)*fx,y=top+(bottom-top)*fy;
+                  if(!check)return {x,y};
+                  const hit=document.elementFromPoint(x,y);
+                  if(hit&&(hit===el||el.contains(hit)))return {x,y};
+                }
               }
-              return {x,y};
+              return null;
             }
             """;
         var hover=await page.EvaluateAsync<JsonElement>(pointScript,new{marker=hoverMarker??marker,check=false});
@@ -360,6 +364,18 @@ internal sealed class BrowserController : IAsyncDisposable
               return received===true;
             }
             """);
+    }
+    internal static async Task<bool> ClickWaveAsync(IPage page,string script,string query)
+    {
+        // Hover the whole card before locating its control. React can replace
+        // that control or animate it into view, so resolve it again on retries.
+        for(var attempt=0;attempt<10;attempt++)
+        {
+            var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query});
+            if(target.GetProperty("found").GetBoolean()&&await ClickControlAsync(page,"wave","wave-card"))return true;
+            await Task.Delay(150);
+        }
+        return false;
     }
     private async Task SearchYouTubeAsync(IPage page,string query)
     {

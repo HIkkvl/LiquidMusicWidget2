@@ -75,17 +75,18 @@
       const image=el.querySelector('img');
       const artwork=image?.currentSrc||image?.src||'';
       const control=el.matches(interactive)?el:el.querySelector('button,[role="button"],a')||el;
-      seen.add(title);result.push({id:title,title,artwork:/^https:\/\//i.test(artwork)?artwork:'',disabled:!enabled(el)||!enabled(control),element:control});
+      seen.add(title);result.push({id:title,title,artwork:/^https:\/\//i.test(artwork)?artwork:'',disabled:!enabled(el)||!enabled(control),element:control,container:el});
       if(result.length>=60)break;
     }
     return result;
   };
-  if(action==='wave_list')return waveOptions().map(({element,...item})=>item);
+  if(action==='wave_list')return waveOptions().map(({element,container,...item})=>item);
   if(action==='wave_target'){
-    document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+    document.querySelectorAll('[data-liquid-control],[data-liquid-wave-card]').forEach(el=>{el.removeAttribute('data-liquid-control');el.removeAttribute('data-liquid-wave-card');});
     const item=waveOptions().find(item=>item.id===query&&!item.disabled);
     if(!item)return {found:false};
-    item.element.setAttribute('data-liquid-control','wave');return {found:true};
+    item.element.setAttribute('data-liquid-control','wave');item.container.setAttribute('data-liquid-wave-card','true');
+    return {found:true};
   }
   if(action==='wave_home_target'){
     document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
@@ -101,7 +102,7 @@
     const image=players.flatMap(root=>[...root.querySelectorAll('img')])[0];
     const like=buttons.find(el=>patterns.like.test(label(el))&&!/не нравится|dislike|ұнамайды/i.test(label(el)))||document.querySelector('#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button');
     return {
-      connected:true,service,wave_origin:location.origin,waves:waveOptions().map(({element,...item})=>item),
+      connected:true,service,wave_origin:location.origin,waves:waveOptions().map(({element,container,...item})=>item),
       title:metadata?.title||text(['[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
       artist:metadata?.artist||text(['[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
       artwork:metadata?.artwork?.at(-1)?.src||image?.currentSrc||image?.src||'',

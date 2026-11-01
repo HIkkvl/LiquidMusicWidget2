@@ -193,7 +193,38 @@ internal static class SelfTests
                 waveTarget=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query="Недоступная волна"});
                 Check(!waveTarget.GetProperty("found").GetBoolean(),"Disabled wave cannot be selected");
             }
-            passed.Add("Dynamic My Wave cards, regional navigation, disabled cards and trusted selection without search");
+            await page.EvaluateAsync("""
+                ()=>{
+                  const button=document.querySelector('[data-wave=rock]');
+                  button.style.cssText='position:fixed;left:30px;top:180px;width:240px;height:80px';
+                  const cover=document.createElement('div');cover.id='partial-cover';
+                  cover.style.cssText='position:fixed;left:130px;top:200px;width:40px;height:40px;background:red;z-index:20';
+                  document.body.append(cover);window.waveClicks=[];
+                }
+                """);
+            Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Click exposed part of wave when its centre is covered");
+            Check(await page.EvaluateAsync<bool>("()=>window.waveClicks.join(',')==='rock'"),"Partially covered wave receives trusted click");
+            await page.EvaluateAsync("""
+                ()=>{
+                  document.getElementById('partial-cover').remove();
+                  const card=document.createElement('div');card.className='VibeWheel_item';
+                  card.style.cssText='position:fixed;left:30px;top:300px;width:240px;height:80px';
+                  card.innerHTML='<span>Саундскейп</span><button data-wave="sound" style="visibility:hidden;position:absolute;right:10px;top:10px;width:60px;height:50px" aria-label="Слушать"></button>';
+                  card.addEventListener('pointerenter',()=>setTimeout(()=>{card.querySelector('button').style.visibility='visible';},180),{once:true});
+                  document.querySelector('.VibeBlock_root').append(card);window.waveClicks=[];
+                }
+                """);
+            Check(await BrowserController.ClickWaveAsync(page,script,"Саундскейп"),"Hover whole card and retry delayed control");
+            Check(await page.EvaluateAsync<bool>("()=>window.waveClicks.join(',')==='sound'"),"Hover-only wave receives trusted click");
+            await page.EvaluateAsync("""
+                ()=>{
+                  const dialog=document.createElement('div');dialog.style.cssText='position:fixed;inset:0;z-index:100;background:black';
+                  document.body.append(dialog);window.waveClicks=[];
+                }
+                """);
+            Check(!await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Real overlay still prevents clicking a wave");
+            Check(await page.EvaluateAsync<int>("()=>window.waveClicks.length")==0,"Never click through an actual overlay");
+            passed.Add("Dynamic My Wave cards, regional navigation, clipped/hover controls and real overlay rejection");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}
