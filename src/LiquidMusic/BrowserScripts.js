@@ -213,6 +213,9 @@
     };
   }
   if(action==='snapshot') {
+    const waveItems=waveOptions().map(({element,container,...item})=>item);
+    const signedIn=service==='yandex'?!!document.querySelector('[class*="UserProfile_userName"]')||waveItems.length>0:
+      !!document.querySelector('ytmusic-user-avatar,button#avatar-btn');
     const image=players.flatMap(root=>[...root.querySelectorAll('img')])[0];
     const trackLink=players.flatMap(root=>[...root.querySelectorAll('a[href*="/track/"],a[href*="/tracks/"],a[href*="watch?v="]')])[0]
       ||(/\/track\/\d+/.test(location.pathname)?{href:location.href}:null)
@@ -222,7 +225,7 @@
     if(!(duration>0)){const fallback=timeFromPlayer();if(fallback){position=fallback.position;duration=fallback.duration;timeSource=fallback.source;}}
     const like=buttons.find(el=>patterns.like.test(label(el))&&!/не нравится|dislike|ұнамайды/i.test(label(el)))||document.querySelector('#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button');
     return {
-      connected:true,service,wave_origin:location.origin,waves:waveOptions().map(({element,container,...item})=>item),
+      connected:true,service,signed_in:signedIn,wave_origin:location.origin,waves:waveItems,
       title:metadata?.title||text(['[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
       artist:metadata?.artist||text(['[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
       album:metadata?.album||'',

@@ -17,7 +17,7 @@ const {pathToFileURL} = require('node:url');
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:true,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz'}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz'}),
      get_design:async()=>({ok:true,design:window.design||'aurora'}),
      set_design:async(design)=>{window.design=design;return {ok:true,design};},
      get_discord:async()=>({ok:true,enabled:false,status:'disabled'}),
@@ -26,6 +26,7 @@ const {pathToFileURL} = require('node:url');
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
      command:async(...args)=>{window.calls.push(args);return {ok:true};},
      setup_browser:async(persist)=>{
+       if(window.browserStatus.embedded){window.accountShown=true;return {ok:true,browser:window.browserStatus};}
        if(window.cancelSetup)return {ok:false,cancelled:true,browser:window.browserStatus};
        if(window.failSetup)return {ok:false,error:'Ошибка подключения',browser:window.browserStatus};
        window.browserStatus={name:'Brave',supported:true,configured:true,connected:true,state:'connected',message:'Подключено',shortcuts_updated:persist};
@@ -184,7 +185,26 @@ const {pathToFileURL} = require('node:url');
    assert.ok(nav.x>=0&&nav.x+nav.width<=350,'Tabs fit the narrow window');
  }
  await page.screenshot({path:'tests/settings-tabs-preview.png'});
+ await page.keyboard.press('Escape');
+ await page.evaluate(async()=>{
+   window.browserStatus={embedded:true,name:'Встроенный плеер',supported:true,configured:true,connected:true,signed_in:false,state:'sign_in',message:'Войдите в музыкальный аккаунт'};
+   await poll();
+ });
+ await page.locator('#settings-button').click();
+ await page.locator('[data-settings-tab=browser]').click();
+ assert.equal(await page.locator('#settings-tab-browser').textContent(),'Аккаунт');
+ assert.equal(await page.locator('#connect-browser').textContent(),'Войти в Яндекс');
+ assert.equal(await page.locator('#connect-browser').isDisabled(),false,'Internal engine readiness does not disable sign-in');
+ assert.equal(await page.locator('#browser-persist-shortcuts').isVisible(),false,'No desktop browser shortcuts in embedded mode');
+ await page.locator('#connect-browser').click();
+ assert.equal(await page.evaluate(()=>window.accountShown),true);
+ assert.equal(await page.locator('#connect-browser').textContent(),'Войти в Яндекс','Opening sign-in does not claim the account is authenticated');
+ await page.evaluate(async()=>{window.browserStatus={...window.browserStatus,signed_in:true,state:'connected',message:'Аккаунт подключён'};await poll();});
+ assert.equal(await page.locator('#connect-browser').textContent(),'Сменить аккаунт');
+ assert.equal(await page.locator('#connect-browser').isDisabled(),false);
+ assert.ok((await page.locator('#connection-detail').textContent()).includes('Внутри приложения'));
+ await page.screenshot({path:'tests/embedded-account-preview.png'});
  assert.deepEqual(errors,[]);
  await browser.close();
- console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, 7 settings tabs, keyboard navigation, drafts across tabs, settings save, narrow/short viewport, no JS errors');
+ console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, 7 settings tabs, embedded sign-in status, keyboard navigation, drafts across tabs, settings save, narrow/short viewport, no JS errors');
 })().catch(e=>{console.error(e);process.exit(1);});

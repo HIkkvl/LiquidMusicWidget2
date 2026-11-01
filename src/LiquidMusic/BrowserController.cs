@@ -16,7 +16,10 @@ internal sealed class BrowserController : IAsyncDisposable
     private readonly Dictionary<string,IPage> selected=new();
     private readonly string script=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"BrowserScripts.js"));
     private readonly YandexMusicRegion yandex;
-    public BrowserController(Settings? settings=null)=>yandex=new(settings??new Settings());
+    private readonly Settings settings;
+    private readonly EmbeddedMusicHost? embedded;
+    public BrowserController(Settings? settings=null,EmbeddedMusicHost? embedded=null)
+    {this.settings=settings??new Settings();this.embedded=embedded;yandex=new(this.settings);}
     public void SetYandexDomain(string domain)
     {
         yandex.Select(domain);selected.Remove("yandex");
@@ -36,6 +39,7 @@ internal sealed class BrowserController : IAsyncDisposable
     private string attachedExecutable="";
     public JsonObject Status()
     {
+        if(embedded!=null)return embedded.Status(settings.Service);
         var info=BrowserSetup.DetectDefault();
         var saved=info.Supported?BrowserSetup.Read(info):null;
         var connected=info.Supported && browser?.IsConnected==true && attachedExecutable.Length>0 && BrowserSetup.SameExecutable(attachedExecutable,info.Executable);
@@ -50,6 +54,12 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     public async Task InitializeConnectionAsync()
     {
+        if(embedded!=null)
+        {
+            await gate.WaitAsync();
+            try{await PageAsync(settings.Service,true);}catch(Exception error){AppPaths.Log("Embedded music startup: "+error.Message);}finally{gate.Release();}
+            return;
+        }
         var info=BrowserSetup.DetectDefault();
         if(!info.Supported||BrowserSetup.Read(info)==null)return;
         await gate.WaitAsync();
@@ -58,10 +68,23 @@ internal sealed class BrowserController : IAsyncDisposable
     public async Task ConfigureAsync(bool updateShortcuts)
     {
         await gate.WaitAsync();
-        try{await BrowserSetup.ConfigureAsync(true,updateShortcuts);await ConnectAsync(false);}finally{gate.Release();}
+        try
+        {
+            if(embedded!=null){await embedded.ShowLoginAsync(settings.Service,settings.Service=="youtube"?"https://music.youtube.com/":yandex.Origin);return;}
+            await BrowserSetup.ConfigureAsync(true,updateShortcuts);await ConnectAsync(false);
+        }
+        finally{gate.Release();}
     }
     private async Task ConnectAsync(bool launch)
     {
+        if(embedded!=null)
+        {
+            await embedded.InitializeAsync();
+            if(browser?.IsConnected==true)return;
+            playwright??=await Playwright.CreateAsync();
+            browser=await playwright.Chromium.ConnectOverCDPAsync(embedded.Endpoint,new(){Timeout=10000,NoDefaults=true});
+            selected.Clear();return;
+        }
         var info=BrowserSetup.DetectDefault();
         if(!info.Supported)throw new InvalidOperationException(info.Error);
         if(browser?.IsConnected==true&&attachedExecutable.Length>0&&BrowserSetup.SameExecutable(attachedExecutable,info.Executable))return;
@@ -82,6 +105,7 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     private async Task<IPage> PageAsync(string service,bool create)
     {
+        if(embedded!=null)return await EmbeddedPageAsync(service);
         await ConnectAsync(create);
         if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed&&MatchesService(previous.Url,service))return RememberPage(previous,service);
         var candidates=browser!.Contexts.SelectMany(context=>context.Pages).Where(page=>AcceptsPage(page.Url,service)).ToList();
@@ -114,9 +138,35 @@ internal sealed class BrowserController : IAsyncDisposable
         page.SetDefaultTimeout(12000);
         return RememberPage(page,service);
     }
+    private async Task<IPage> EmbeddedPageAsync(string service)
+    {
+        await embedded!.EnsureServiceAsync(service,service=="youtube"?"https://music.youtube.com/":yandex.Origin);
+        await ConnectAsync(false);
+        if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed)return RememberPage(previous,service);
+        for(var attempt=0;attempt<30;attempt++)
+        {
+            foreach(var candidate in browser!.Contexts.SelectMany(context=>context.Pages))
+            {
+                var session=await candidate.Context.NewCDPSessionAsync(candidate);
+                try
+                {
+                    var info=await session.SendAsync("Target.getTargetInfo");
+                    if(info?.GetProperty("targetInfo").GetProperty("targetId").GetString()==embedded.Target(service))
+                    {candidate.SetDefaultTimeout(12000);return RememberPage(candidate,service);}
+                }
+                finally{await session.DetachAsync();}
+            }
+            await Task.Delay(100);
+        }
+        throw new InvalidOperationException("Встроенный плеер ещё запускается. Повторите через несколько секунд.");
+    }
     private async Task<JsonObject> ReadAsync(IPage page,string service)
     {
-        if(!MatchesService(page.Url,service))throw new InvalidOperationException("Музыкальная вкладка перешла на другой сайт. Завершите вход в браузере и повторите.");
+        if(!MatchesService(page.Url,service))
+        {
+            if(embedded!=null){embedded.SetSignedIn(service,false);return new(){["connected"]=false,["service"]=service,["error"]="Войдите в аккаунт: Настройки → Аккаунт."};}
+            throw new InvalidOperationException("Музыкальная вкладка перешла на другой сайт. Завершите вход в браузере и повторите.");
+        }
         if(service=="yandex")yandex.Remember(page.Url);
         var snapshot=await EvaluateSnapshotAsync(page,service);
         // Яндекс Музыка играет через `new Audio()`, которого нет в DOM: тогда время и ссылка на поток недоступны.
@@ -141,6 +191,12 @@ internal sealed class BrowserController : IAsyncDisposable
                 File.WriteAllText(Path.Combine(AppPaths.Logs,"time-diagnostic.json"),detail.GetRawText());
             }
             catch(Exception e){AppPaths.Log("Time diagnostic: "+e.Message);}
+        }
+        if(embedded!=null)
+        {
+            var signedIn=snapshot["signed_in"]?.GetValue<bool>()==true;
+            embedded.SetSignedIn(service,signedIn);
+            if(!signedIn&&service=="yandex"){snapshot["connected"]=false;snapshot["error"]="Войдите в аккаунт: Настройки → Аккаунт.";}
         }
         return snapshot;
     }
@@ -207,6 +263,8 @@ internal sealed class BrowserController : IAsyncDisposable
         {
             var page=await PageAsync(service,true);
             if(action=="open")return await ReadAsync(page,service);
+            if(embedded!=null&&service=="yandex"&&(await ReadAsync(page,service))["signed_in"]?.GetValue<bool>()!=true)
+                throw new InvalidOperationException("Сначала войдите в Яндекс: Настройки → Аккаунт → Войти.");
             // NoDefaults preserves the user's ordinary browser state, including
             // disabled focus emulation. Temporarily focus just this music target
             // inside Chromium so background playback accepts trusted input.
@@ -454,8 +512,10 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     public ValueTask DisposeAsync()
     {
-        // Disposing the transport disconnects from daily Brave. Never Browser.close.
+        // Dispose the transport, then our own WebViews. Do not Browser.close a
+        // user-owned browser used by the legacy diagnostic tools.
         playwright?.Dispose();
+        embedded?.Dispose();
         return ValueTask.CompletedTask;
     }
 }

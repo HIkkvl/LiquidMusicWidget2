@@ -297,6 +297,9 @@ dialog#settings-dialog::backdrop{background:rgba(4,8,20,.42);backdrop-filter:blu
 }
 .settings-tabpanel{display:flex;flex-direction:column;gap:12px;outline:none}
 .settings-tabpanel[hidden]{display:none}
+.overlay-enabled[hidden]{display:none}
+.account-signin{padding:11px 14px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:var(--accent);color:var(--text);font-size:13px;font-weight:600}
+.account-signin:disabled{opacity:.5;cursor:wait}
 .settings-footer{display:flex;flex-direction:column;gap:10px}
 .settings-footer .settings-error{max-height:76px;overflow-y:auto}
 .settings-section-title{margin:0;font-size:13px;font-weight:600}

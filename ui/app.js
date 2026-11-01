@@ -34,7 +34,7 @@ async function command(action,value) {
   if (!result.ok) toast(result.error);
   return result;
 }
-function renderWaves(waves=[],message='Подключите Яндекс Музыку, чтобы увидеть подборки Моей волны.') {
+function renderWaves(waves=[],message='Войдите в Яндекс Музыку, чтобы увидеть подборки Моей волны.') {
   const key=JSON.stringify([waves,waves.length?'':message]);if(key===wavesKey)return;wavesKey=key;
   $('genres').replaceChildren();
   if(!waves.length){const hint=document.createElement('p');hint.className='wave-empty';hint.textContent=message;$('genres').append(hint);return;}
@@ -168,22 +168,24 @@ function renderAssistantSettings() {
   section.append(title,note,provider,enabledLabel,key,audioLabel,audioNote,hintsLabel,status,save,test,remove);$('assistant-settings-content').replaceChildren(section);paint();
 }
 function renderBrowserSettings() {
+  const embedded=!!configuration.browser?.embedded;
   const section=document.createElement('section');section.className='overlay-options';
   const title=document.createElement('h3');title.id='browser-name';
   const state=document.createElement('p');state.id='browser-status';state.setAttribute('role','status');state.setAttribute('aria-live','polite');
-  const note=document.createElement('p');note.textContent='Используется браузер по умолчанию Windows. Подключите его один раз: настройка сохраняется и восстанавливается при запуске приложения.';
+  const note=document.createElement('p');note.textContent=embedded?'Музыка работает внутри приложения. Войдите на странице музыкального сервиса; после входа окно скроется и останется только компактный виджет. Сессия сохраняется локально в отдельном профиле приложения.':'Используется браузер по умолчанию Windows. Подключите его один раз: настройка сохраняется и восстанавливается при запуске приложения.';
   const persist=document.createElement('label');persist.className='overlay-enabled';
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.id='browser-persist-shortcuts';checkbox.checked=true;
   persist.append(checkbox,document.createTextNode('Закрепить подключение в ярлыках браузера (с резервными копиями)'));
+  persist.hidden=embedded;
   const button=document.createElement('button');button.type='button';button.id='connect-browser';
   button.addEventListener('click',async()=>{
     browserSetupPending=true;renderBrowserConnection(configuration.browser);
-    const result=await invoke('setup_browser',checkbox.checked);
+    const result=await invoke('setup_browser',embedded?false:checkbox.checked);
     browserSetupPending=false;
     if(result.browser)configuration.browser=result.browser;
     renderBrowserConnection(configuration.browser);
     if(!result.ok&&!result.cancelled)showSettingsError(result.error);
-    else if(result.ok&&result.browser?.connected){$('settings-error').hidden=true;toast('Браузер подключён. Настройка сохранена');}
+    else if(result.ok){$('settings-error').hidden=true;toast(embedded?'Окно входа в аккаунт открыто':'Браузер подключён. Настройка сохранена');}
   });
   const regionLabel=document.createElement('label');regionLabel.textContent='Домен Яндекс Музыки';
   const region=document.createElement('select');region.id='yandex-domain';
@@ -199,13 +201,24 @@ function renderBrowserSettings() {
     else {region.value=configuration.yandex_domain||'auto';showSettingsError(result.error);}
   });
   regionLabel.append(region);
-  const regionNote=document.createElement('p');regionNote.textContent='Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
-  section.append(title,state,note,regionLabel,regionNote,persist,button);$('browser-settings-content').replaceChildren(section);
+  const regionNote=document.createElement('p');regionNote.textContent=embedded?'Выберите домен вашего аккаунта: .ru, .kz или .com. Режим «Авто» запоминает домен внутри приложения; по умолчанию используется music.yandex.ru.':'Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
+  if(embedded){button.classList.add('account-signin');section.append(title,state,button,note,regionLabel,regionNote,persist);}
+  else section.append(title,state,note,regionLabel,regionNote,persist,button);
+  $('browser-settings-content').replaceChildren(section);
   renderBrowserConnection(configuration.browser);
 }
 function renderBrowserConnection(browser) {
   const state=$('browser-status'),button=$('connect-browser');if(!state||!button)return;
   browser=browser||{name:'Браузер Windows',state:'not_configured',message:'Подключите браузер один раз',supported:true};
+  if(browser.embedded){
+    $('browser-name').textContent='Музыкальный аккаунт';
+    state.textContent=browserSetupPending?'Открываем окно входа…':browser.message;
+    state.dataset.state=browser.state;
+    button.textContent=browser.signed_in?'Сменить аккаунт':(configuration.service==='youtube'?'Войти в YouTube':'Войти в Яндекс');
+    button.disabled=browserSetupPending;
+    $('browser-persist-shortcuts').closest('label').hidden=true;
+    return;
+  }
   $('browser-name').textContent='Браузер по умолчанию · '+browser.name;
   state.textContent=browserSetupPending?'Подключение…':browser.message;
   state.dataset.state=browserSetupPending?'connecting':browser.state;
@@ -253,7 +266,7 @@ function switchService(name){
   applyTheme(name);
   configuration.service=name;
   invoke('set_service',name);
-  toast(name==='youtube'?'YouTube: откройте вкладку YouTube / YouTube Music':'Яндекс Музыка: откройте свою вкладку .ru, .kz или .com');
+  toast(name==='youtube'?'YouTube · встроенный плеер':'Яндекс Музыка · встроенный плеер');
 }
 async function saveShortcuts() {
   const button=$('save-shortcuts');button.disabled=true;
@@ -308,7 +321,9 @@ function renderState(snapshot) {
   document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===svcNow));
   const svcShown=snapshot.service||'yandex';
   $('connection-title').textContent=connected?(svcShown==='youtube'?'YouTube подключён':'Яндекс Музыка подключена'):(svcNow==='youtube'?'Откройте YouTube или YouTube Music':'Откройте Яндекс Музыку');
-  $('connection-detail').textContent=snapshot.error?snapshot.error:connected?(snapshot.browser?.name||configuration?.browser?.name||'Браузер')+' · без расширений':'Настройки → Подключить браузер';
+  const embedded=!!(snapshot.browser?.embedded||configuration?.browser?.embedded);
+  if(embedded&&!connected)$('connection-title').textContent='Войдите в музыкальный аккаунт';
+  $('connection-detail').textContent=snapshot.error?snapshot.error:embedded?(connected?'Внутри приложения · фоновый плеер':'Настройки → Аккаунт → Войти'):connected?(snapshot.browser?.name||configuration?.browser?.name||'Браузер')+' · без расширений':'Настройки → Подключить браузер';
   $('connection-detail').title=snapshot.error||'';
   const supported=connected && Number.isFinite(snapshot.volume);
   $('volume').disabled=!supported;
@@ -460,7 +475,7 @@ $('reset-shortcuts').addEventListener('click',()=>{editing=clone(defaultBindings
 $('close-button').addEventListener('click',()=>invoke('hide'));
 $('quit-button').addEventListener('click',()=>invoke('quit'));
 $('like-button').addEventListener('click',()=>command('like'));
-$('open-music').addEventListener('click',async()=>{const result=await invoke('open_music');if(!result.ok)toast(result.error);else toast('Музыкальная вкладка готова в браузере');});
+$('open-music').addEventListener('click',async()=>{const result=await invoke('open_music');if(!result.ok)toast(result.error);else toast('Окно музыкального аккаунта открыто');});
 document.querySelectorAll('[data-command]').forEach(el=>el.addEventListener('click',()=>command(el.dataset.command)));
 [['on-top','set_topmost'],['startup','set_startup']].forEach(([id,method])=>{
   $(id).addEventListener('change',async event=>{

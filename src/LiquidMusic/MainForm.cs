@@ -14,6 +14,7 @@ internal sealed class MainForm : Form
     private readonly Settings settings=new();
     private readonly WebView2 view=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(11,22,40)};
     private readonly BrowserController browser;
+    private readonly EmbeddedMusicHost music=new();
     private readonly DeepSeekAssistant assistant;
     private readonly HandoffServer handoff;
     private readonly VoiceAssistant voice;
@@ -27,7 +28,7 @@ internal sealed class MainForm : Form
     private DateTime islandPreviewUntil;
     private GlobalHotkeys? hotkeys;
     private WheelControl? wheel;
-    private JsonObject snapshot=new(){["connected"]=false,["title"]="В ожидании музыки",["artist"]="Подключите браузер в настройках"};
+    private JsonObject snapshot=new(){["connected"]=false,["title"]="В ожидании музыки",["artist"]="Войдите в музыкальный аккаунт"};
     private string hotkeyError="";
     private bool quitting,polling;
     private double? wheelTarget;
@@ -39,7 +40,7 @@ internal sealed class MainForm : Form
     protected override bool ShowWithoutActivation => true;
     public MainForm(bool hidden,bool test=false)
     {
-        browser=new(settings);
+        browser=new(settings,music);
         assistant=new(settings);
         discord.Configure(settings.Value["discord"]);
         handoff=new(HandoffSnapshotAsync,HandoffCommandAsync);
@@ -92,7 +93,7 @@ internal sealed class MainForm : Form
             menu.Items.Add("Пауза / продолжить",null,async(_,_)=>await RunActionAsync("play_pause"));
             menu.Items.Add("Следующий трек",null,async(_,_)=>await RunActionAsync("next"));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Подключить браузер…",null,async(_,_)=>{try{await SetupBrowserFromUiAsync(true);}catch(Exception e){MessageBox.Show(this,e.Message,"Liquid Music");}});
+            menu.Items.Add("Музыкальный аккаунт…",null,async(_,_)=>{try{await SetupBrowserFromUiAsync(false);}catch(Exception e){MessageBox.Show(this,e.Message,"Liquid Music");}});
             menu.Items.Add("Музыка на телефон…",null,(_,_)=>ShowHandoff());
             menu.Items.Add("Выйти",null,(_,_)=>Quit());
             tray.Icon=Icon;tray.Text="Liquid Music — C#";tray.ContextMenuStrip=menu;tray.Visible=true;
@@ -259,12 +260,17 @@ internal sealed class MainForm : Form
             case "command":
                 var action=Arg(0)!.GetValue<string>();
                 await RunCommandAsync(action,Arg(1));break;
-            case "open_music":await RunCommandAsync("open",null);break;
+            case "open_music":await SetupBrowserFromUiAsync(false);break;
             case "setup_browser":
                 if(!await SetupBrowserFromUiAsync(Arg(0)?.GetValue<bool>()??true))return new{ok=false,cancelled=true,browser=browser.Status()};
                 return new{ok=true,browser=browser.Status()};
             case "set_service":
                 var service=Arg(0)!.GetValue<string>();if(service is not("yandex" or "youtube"))throw new ArgumentException("Неизвестный сервис");
+                if(service!=settings.Service&&snapshot["playing"]?.GetValue<bool>()==true)
+                {
+                    try{await browser.CommandAsync(settings.Service,"pause");}
+                    catch(Exception error){AppPaths.Log("Pause previous music service: "+error.GetType().Name);}
+                }
                 settings.Value["service"]=service;settings.Save();snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
             case "set_yandex_domain":
                 browser.SetYandexDomain(Arg(0)!.GetValue<string>());
@@ -402,7 +408,7 @@ internal sealed class MainForm : Form
     }
     private async Task PollAsync()
     {
-        if(polling||quitting)return;polling=true;
+        if(polling||quitting||uiTest)return;polling=true;
         try
         {
             var service=settings.Service;
@@ -484,15 +490,7 @@ internal sealed class MainForm : Form
     }
     private async Task<bool> SetupBrowserFromUiAsync(bool updateShortcuts)
     {
-        var info=BrowserSetup.DetectDefault();
-        if(!info.Supported)throw new InvalidOperationException(info.Error);
-        var status=browser.Status();
-        if(status["connected"]?.GetValue<bool>()==true&&(!updateShortcuts||status["shortcuts_updated"]?.GetValue<bool>()==true))return true;
-        var note=info.Name+" — браузер по умолчанию Windows. Настройка выполняется один раз и сохраняется. Если потребуется перезапуск браузера, вкладки будут восстановлены; сначала сохраните ввод на страницах. Локальный канал даёт приложению доступ к вкладкам.";
-        if(info.ProcessName=="browser")note+=" Если обычный профиль недоступен для управления, откроется отдельный музыкальный профиль. В нём потребуется войти в аккаунт; для него создаётся отдельный ярлык Liquid Music.";
-        if(updateShortcuts)note+=" Ярлыки этого браузера будут обновлены для постоянного подключения; перед изменением сохраняются резервные копии.";
-        if(MessageBox.Show(this,note+" Продолжить?","Подключить браузер",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return false;
-        await browser.ConfigureAsync(updateShortcuts);await PollAsync();return true;
+        await browser.ConfigureAsync(false);return true;
     }
     private static bool StartupEnabled()
     {
