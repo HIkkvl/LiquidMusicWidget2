@@ -8,7 +8,7 @@ using Microsoft.Playwright;
 
 namespace LiquidMusic;
 
-internal sealed class BrowserController : IAsyncDisposable
+internal sealed partial class BrowserController : IAsyncDisposable
 {
     private readonly SemaphoreSlim gate=new(1,1);
     private IPlaywright? playwright;
@@ -20,8 +20,8 @@ internal sealed class BrowserController : IAsyncDisposable
     private readonly EmbeddedMusicHost? embedded;
     private SpotifyMusicHost? spotify;
     private string Origin(string service)=>service=="yandex"?yandex.Origin:MusicServices.Origin(service);
-    public BrowserController(Settings? settings=null,EmbeddedMusicHost? embedded=null)
-    {this.settings=settings??new Settings();this.embedded=embedded;yandex=new(this.settings);}
+    public BrowserController(Settings? settings=null,EmbeddedMusicHost? embedded=null,SpotifyMusicHost? spotify=null)
+    {this.settings=settings??new Settings();this.embedded=embedded;this.spotify=spotify;yandex=new(this.settings);}
     public void SetYandexDomain(string domain)
     {
         yandex.Select(domain);selected.Remove("yandex");
@@ -286,6 +286,15 @@ internal sealed class BrowserController : IAsyncDisposable
             // inside Chromium so background playback accepts trusted input.
             focus=await page.Context.NewCDPSessionAsync(page);
             await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",true}});
+            if(action=="spotify_playlist")
+            {
+                if(service!="spotify")throw new InvalidOperationException("Выберите Spotify.");
+                var playlistUrl=SpotifyPlaylists.NormalizeUrl(query??"");
+                var playlistAccount=await SpotifyAccountAsync(page,script);
+                var playlistState=await StartSpotifyPlaylistAsync(page,script,playlistUrl);
+                SpotifyPlaylists.UpdateDetails(settings,playlistAccount,playlistUrl,playlistState["spotify_playlist_title"]?.GetValue<string>()??"",playlistState["spotify_playlist_artwork"]?.GetValue<string>()??"");
+                return playlistState;
+            }
             if(action=="wave_reset")
             {
                 if(service!="yandex")throw new InvalidOperationException("Моя волна доступна в Яндекс Музыке.");

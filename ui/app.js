@@ -4,6 +4,7 @@ const serviceNames={yandex:'Яндекс Музыка',youtube:'YouTube Music',s
 const clone = value => JSON.parse(JSON.stringify(value));
 const defaultBindings = Object.fromEntries([['toggle','Num0'],['next','Num6'],['previous','Num4'],['play_pause','Num5'],['stop','Num2'],['like','Num1'],['voice','Num3']].map(([action,key]) => [action,{key,ctrl:false,alt:false,shift:false}]));
 let wavesKey=null,wavesAttempted=false,wavesLoading=false,waveSelecting=false,waveOrigin=null;
+let spotifyKey=null,spotifyAccount=null,spotifyIdentity=null,spotifyLoading=false,spotifyAttempted=false,spotifyGeneration=0,spotifySelecting=false;
 let configuration = null;
 let currentState = {};
 let editing = {};
@@ -77,6 +78,49 @@ async function refreshWaves() {
     if(result.ok){waveOrigin=result.wave_origin||waveOrigin;renderWaves(result.waves||[],'В Моей волне пока нет доступных подборок.');}
     else renderWaves([],result.error||'Не удалось загрузить Мою волну. Обновите список.');
   }finally{wavesLoading=false;button.disabled=false;button.textContent='Обновить';}
+}
+function renderSpotifyPlaylists(playlists=[],message='Войдите в Spotify, чтобы увидеть миксы и плейлисты.') {
+  const key=JSON.stringify([playlists,message]);if(key===spotifyKey)return;spotifyKey=key;
+  const list=$('spotify-playlists');list.replaceChildren();
+  if(!playlists.length){const hint=document.createElement('p');hint.className='wave-empty';hint.textContent=message;list.append(hint);return;}
+  for(const playlist of playlists){
+    const row=document.createElement('button');row.type='button';row.className='genre spotify-playlist';row.dataset.playlist=playlist.id;
+    row.title='Включить плейлист: '+playlist.title;row.setAttribute('aria-label',row.title);
+    row.classList.toggle('selected',currentState.active_spotify_playlist===playlist.id);
+    const cover=document.createElement('img');cover.alt='';cover.referrerPolicy='no-referrer';
+    cover.src=/^https:\/\//i.test(playlist.artwork||'')?playlist.artwork:'assets/services/spotify.png';
+    cover.addEventListener('error',()=>{if(!cover.src.endsWith('/services/spotify.png'))cover.src='assets/services/spotify.png';});
+    const title=document.createElement('span');title.className='genre-name';title.textContent=playlist.title;
+    const arrow=document.createElementNS('http://www.w3.org/2000/svg','svg');const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-chevron');arrow.append(use);
+    row.append(cover,title,arrow);list.append(row);
+    row.addEventListener('click',async()=>{
+      if(spotifySelecting)return;spotifySelecting=true;row.disabled=true;
+      try{const result=await command('spotify_playlist',playlist.url);if(result.ok){document.querySelectorAll('.spotify-playlist').forEach(el=>el.classList.toggle('selected',el.dataset.playlist===playlist.id));toast('Играет «'+playlist.title+'»');}}
+      finally{spotifySelecting=false;row.disabled=false;}
+    });
+  }
+  list.scrollTop=0;
+}
+async function refreshSpotifyPlaylists() {
+  if(spotifyLoading)return;spotifyLoading=true;spotifyAttempted=true;
+  $('refresh-spotify-playlists').disabled=true;
+  const generation=spotifyGeneration;renderSpotifyPlaylists([],'Загружаю миксы и плейлисты…');
+  try{
+    const result=await invoke('get_spotify_playlists');
+    if(generation!==spotifyGeneration||configuration?.service!=='spotify')return;
+    if(result.ok){spotifyAccount=result.account;renderSpotifyPlaylists(result.playlists||[],'В аккаунте пока нет плейлистов. Добавьте первый по ссылке.');}
+    else renderSpotifyPlaylists([],result.error||'Не удалось загрузить плейлисты.');
+  }finally{spotifyLoading=false;$('refresh-spotify-playlists').disabled=false;}
+}
+async function addSpotifyPlaylist(event) {
+  event.preventDefault();const button=$('save-spotify-playlist');button.disabled=true;button.textContent='Добавляю…';$('spotify-playlist-error').hidden=true;
+  const generation=spotifyGeneration;
+  try{
+    const result=await invoke('add_spotify_playlist',$('spotify-playlist-url').value.trim());
+    if(generation!==spotifyGeneration||configuration?.service!=='spotify')return;
+    if(result.ok){spotifyAccount=result.account;renderSpotifyPlaylists(result.playlists||[]);$('spotify-playlist-dialog').close();toast(result.added===false?'Плейлист уже добавлен':'Плейлист добавлен');}
+    else{$('spotify-playlist-error').textContent=result.error||'Не удалось добавить плейлист.';$('spotify-playlist-error').hidden=false;}
+  }finally{button.disabled=false;button.textContent='Добавить';}
 }
 function updateShortcuts() {
   if(!configuration) return;
@@ -306,6 +350,15 @@ function renderState(snapshot) {
   const connected=!!snapshot.connected;
   const waveService=configuration?.service||snapshot.service||'yandex';
   document.querySelector('.genres-section').hidden=waveService!=='yandex';
+  $('spotify-library').hidden=waveService!=='spotify';
+  if(waveService==='spotify'){
+    const identity=String(connected)+'|'+(snapshot.spotify_document||'')+'|'+(snapshot.spotify_account_hint||'');
+    if(identity!==spotifyIdentity||snapshot.spotify_account&&spotifyAccount&&snapshot.spotify_account!==spotifyAccount){spotifyIdentity=identity;spotifyAccount=snapshot.spotify_account||null;spotifyAttempted=false;spotifyGeneration++;renderSpotifyPlaylists();$('spotify-playlist-dialog').close();$('spotify-playlist-url').value='';}
+    if(connected&&!spotifyAttempted&&!spotifyLoading)void refreshSpotifyPlaylists();
+    if(!connected){spotifyAttempted=false;spotifyAccount=null;renderSpotifyPlaylists();}
+    $('add-spotify-playlist').disabled=!connected;
+    document.querySelectorAll('.spotify-playlist').forEach(row=>row.classList.toggle('selected',row.dataset.playlist===snapshot.active_spotify_playlist));
+  }else if(spotifyIdentity!==null){spotifyIdentity=null;spotifyAccount=null;spotifyAttempted=false;spotifyGeneration++;renderSpotifyPlaylists();$('spotify-playlist-dialog').close();}
   $('service-search').hidden=waveService==='yandex';
   $('service-search-title').textContent='Поиск · '+serviceNames[waveService];
   $('service-note').textContent=waveService==='spotify'?'Spotify работает в отдельном фоновом Edge. Доступность треков и воспроизведения зависит от аккаунта и региона.':waveService==='soundcloud'?'Для лайков войдите в SoundCloud. Некоторые треки требуют подписку или недоступны в вашем регионе.':'Воспроизведение зависит от доступности трека и аккаунта.';
@@ -329,7 +382,7 @@ function renderState(snapshot) {
   context.classList.toggle('wave-active',!!activeWave);context.disabled=!activeWave||waveSelecting;
   context.title=activeWave?'Отключить «'+activeWave+'» и включить Мою волну':'';
   context.setAttribute('aria-label',activeWave?context.title:context.textContent);
-  document.querySelectorAll('.genre').forEach(row=>row.classList.toggle('selected',!!activeWave&&row.dataset.wave===activeWave));
+  document.querySelectorAll('.genre[data-wave]').forEach(row=>row.classList.toggle('selected',!!activeWave&&row.dataset.wave===activeWave));
   const artwork=hasTrack?snapshot.artwork||'':'';
   if(artwork!==lastArtwork){
     lastArtwork=artwork;
@@ -491,6 +544,10 @@ async function connect() {
 }
 $('refresh-waves').addEventListener('click',refreshWaves);
 $('track-context').addEventListener('click',resetWave);
+$('add-spotify-playlist').addEventListener('click',()=>{$('spotify-playlist-url').value='';$('spotify-playlist-error').hidden=true;$('spotify-playlist-dialog').showModal();});
+$('refresh-spotify-playlists').addEventListener('click',refreshSpotifyPlaylists);
+$('spotify-playlist-form').addEventListener('submit',addSpotifyPlaylist);
+$('cancel-spotify-playlist').addEventListener('click',()=>$('spotify-playlist-dialog').close());
 $('service-search-form').addEventListener('submit',async event=>{
   event.preventDefault();const query=$('service-query').value.trim();if(!query)return;
   const button=$('service-search-play');button.disabled=true;button.textContent='Ищу…';
@@ -533,7 +590,7 @@ $('fx-glass').addEventListener('change',e=>changeFx({glass:e.target.checked}));
 $('fx-clear').addEventListener('change',e=>changeFx({clear:e.target.checked}));
 $('cover').addEventListener('error',()=>{if(!$('cover').src.endsWith('/assets/cover.svg'))$('cover').src='assets/cover.svg';});
 document.addEventListener('keydown',event=>{
-  if($('settings-dialog').open)return;
+  if($('settings-dialog').open||$('spotify-playlist-dialog').open)return;
   if(event.code==='Escape'){event.preventDefault();invoke('hide');}
   if(event.code==='Space' && !['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName)){event.preventDefault();command('play_pause');}
 });

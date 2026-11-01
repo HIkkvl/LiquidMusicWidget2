@@ -112,6 +112,8 @@ internal static class ServicePlayerTests
             await page.ReloadAsync();
             if(!await page.EvaluateAsync<bool>("()=>document.cookie.includes('serviceSessionProbe=ok')"))throw new InvalidOperationException("Spotify session cookie not retained");
             checks.Add("Spotify: private background Edge, Widevine, metadata, trusted search/play/pause/skip/like, volume and isolated session");
+            await SpotifyPlaylistTests.CheckIntegrationAsync(spotify,page,root);
+            checks.Add("Spotify account library, playlist URL import, native playlist playback, scroll restoration, persistence and account switching");
         }
         var migratedSpotify=ProfileStorage.Prepare("spotify-edge",Path.Combine(root,"shared-profiles"),new[]{legacyInstall});
         await using(var restoredSpotify=new SpotifyMusicHost(migratedSpotify))

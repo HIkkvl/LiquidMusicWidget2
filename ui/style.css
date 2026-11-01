@@ -138,6 +138,7 @@ body[data-design] .track-meta .eyebrow.wave-active{display:inline-block;cursor:p
 body[data-service="spotify"]{--blue:#1ed760;--indigo:#16a54c;--accent:linear-gradient(120deg,#1ed760,#16a54c)}
 body[data-service="soundcloud"]{--blue:#ff8a3c;--indigo:#ff5500;--accent:linear-gradient(120deg,#ff8a3c,#ff5500)}
 @media(max-height:650px){
+  body[data-service="spotify"] .shell{gap:5px}
   .service-search{padding:10px;min-height:62px}
   .service-search>h2,.service-search>p,.service-search label{display:none}
   .service-search form{gap:8px}
@@ -510,6 +511,42 @@ body[data-quality="low"] .cover-shine{display:none}
 }
 
 .genres-section[hidden]{display:none}
+.spotify-library .section-heading{gap:8px}
+.spotify-library h2{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.spotify-library-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.spotify-library #add-spotify-playlist{color:var(--text);background:rgba(0,0,0,.2);border-radius:10px;padding:5px 7px}
+.spotify-library .wave-refresh{font-size:11px;white-space:nowrap}
+.spotify-playlist .genre-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body[data-service="spotify"] .service-search{flex:0 0 auto;min-height:0;padding:10px 12px}
+body[data-service="spotify"] .service-search>h2,body[data-service="spotify"] .service-search>p,body[data-service="spotify"] .service-search label{display:none}
+#spotify-playlist-dialog{width:min(360px,calc(100vw - 32px));padding:0;border:1px solid var(--stroke);border-radius:22px;background:#17231d;color:var(--text);max-height:calc(100vh - 48px)}
+#spotify-playlist-dialog::backdrop{background:rgba(4,8,20,.65);backdrop-filter:blur(8px)}
+.playlist-panel{padding:20px;display:flex;flex-direction:column;gap:16px}
+.playlist-panel h2{font-size:19px}
+.playlist-panel label{font-size:13px;color:var(--text-2)}
+.playlist-panel input{width:100%;min-width:0;box-sizing:border-box;padding:12px;border:1px solid var(--stroke);border-radius:12px;font:inherit;color:var(--text);background:rgba(0,0,0,.2)}
+.playlist-dialog-actions{display:flex;justify-content:flex-end;gap:10px}
+.playlist-dialog-actions button{border:0;border-radius:12px;padding:10px 16px;font:inherit;color:var(--text);background:rgba(255,255,255,.1);cursor:pointer}
+#save-spotify-playlist{background:var(--accent)}
+#save-spotify-playlist:disabled{opacity:.6;cursor:wait}
+#spotify-playlist-error{font-size:12px;line-height:1.4;color:#ffb5bd;margin:0;overflow-wrap:anywhere}
+@media(max-height:650px){
+  body[data-service="spotify"] .header{height:36px}
+  body[data-service="spotify"] .voice-copy small{display:none}
+  body[data-service="spotify"] .voice-copy span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body[data-service="spotify"] .timeline{margin-top:6px}
+  body[data-service="spotify"] .times{margin-top:4px}
+  body[data-service="spotify"] .transport{margin-top:6px}
+  body[data-service="spotify"] .preferences{padding:8px 12px}
+  body[data-service="spotify"] .preferences input{height:20px}
+  body[data-service="spotify"] .service-search{padding:7px 10px}
+  body[data-service="spotify"] .service-search input,body[data-service="spotify"] .service-search button{padding:8px}
+  body[data-service="spotify"] .spotify-library{min-height:84px}
+  .spotify-library .section-heading{margin-bottom:4px}
+  .spotify-library h2{font-size:14px}
+  .spotify-playlist{padding:7px 10px;min-height:48px}
+  .spotify-playlist img{width:34px;height:34px}
+}
 .wave-refresh{font:inherit;font-size:12px;color:var(--text-2);background:transparent;border:0;padding:4px;cursor:pointer}
 .wave-refresh:disabled{opacity:.5;cursor:wait}
 .wave-empty{margin:0;padding:14px;color:var(--text-2);font-size:13px;line-height:1.5}

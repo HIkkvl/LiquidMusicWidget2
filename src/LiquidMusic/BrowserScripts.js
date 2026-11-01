@@ -86,6 +86,69 @@
     like:/мне нравится|понравивш|нравится|\blike\b|liked|unlike|ұнайды|медиатек|любимые треки|save.*library|remove.*library|add.*library/i
   };
   const volumeInput=document.querySelector('[data-testid="volume-bar"] input[type="range"],input[type="range"][aria-label*="громк" i],input[type="range"][aria-label*="volume" i]');
+  const spotifyAvatar=document.querySelector('[data-testid="user-widget-link"],[data-testid="user-widget-avatar"]');
+  if(service==='spotify')window.__liquidSpotifyDocument||=crypto.randomUUID();
+  const spotifyHint=spotifyAvatar?[label(spotifyAvatar),spotifyAvatar.textContent,spotifyAvatar.querySelector('img')?.getAttribute('src')].join('|'):'';
+  if(window.__liquidSpotifyAccount?.hint!==spotifyHint)delete window.__liquidSpotifyAccount;
+  const playlistUrl=value=>{
+    try{const url=new URL(value,location.href);const match=/^\/(?:intl-[a-zA-Z-]+\/)?playlist\/([a-zA-Z0-9]{22})\/?$/.exec(url.pathname);
+      return url.origin==='https://open.spotify.com'&&match?'https://open.spotify.com/playlist/'+match[1]:null;
+    }catch{return null;}
+  };
+  if(service==='spotify'&&action==='spotify_account'){
+    const links=[...document.querySelectorAll('[role="menu"] a[href*="/user/"],[data-testid="user-widget-dropdown"] a[href*="/user/"]')];
+    const profile=links.find(link=>link.getClientRects().length&&getComputedStyle(link).visibility!=='hidden');
+    if(profile){const url=new URL(profile.href,location.href);const match=/^\/(?:intl-[a-zA-Z-]+\/)?user\/([^/]+)\/?$/.exec(url.pathname);
+      if(url.origin==='https://open.spotify.com'&&match){const account=decodeURIComponent(match[1]);window.__liquidSpotifyAccount={account,hint:spotifyHint};return {account,can_open:true};}}
+    if(spotifyAvatar)spotifyAvatar.setAttribute('data-liquid-control','spotify-account');
+    return {can_open:!!spotifyAvatar};
+  }
+  if(service==='spotify'&&action==='spotify_library'){
+    const result=[],seen=new Set();
+    for(const link of document.querySelectorAll('a[href*="/playlist/"]')){
+      const url=playlistUrl(link.href);if(!url||seen.has(url))continue;
+      if(!link.getClientRects().length||getComputedStyle(link).visibility==='hidden')continue;
+      let card=link;
+      for(let parent=link.parentElement,depth=0;parent&&depth<5;parent=parent.parentElement,depth++){
+        const urls=new Set([...parent.querySelectorAll('a[href*="/playlist/"]')].map(a=>playlistUrl(a.href)).filter(Boolean));
+        if(urls.size>1)break;card=parent;if(parent.querySelector('img'))break;
+      }
+      const title=(link.getAttribute('aria-label')||link.innerText||card.querySelector('[data-testid="card-title"],[data-testid="entityTitle"]')?.textContent||card.innerText||'').replace(/\s+/g,' ').trim();
+      if(!title||title.length>200)continue;
+      const image=card.querySelector('img');seen.add(url);
+      result.push({id:url.split('/').at(-1),url,title,artwork:image?.currentSrc||image?.src||''});
+    }
+    return result;
+  }
+  if(service==='spotify'&&action==='spotify_home_target'){
+    const home=[...document.querySelectorAll('button,a')].find(el=>/^(?:главная|home)$/i.test(label(el).trim())&&enabled(el));
+    if(home)home.setAttribute('data-liquid-control','spotify-home');return !!home;
+  }
+  if(service==='spotify'&&action==='spotify_library_scroll'){
+    const sidebar=document.getElementById('Desktop_LeftSidebar_Id');
+    const scroll=sidebar&&[...sidebar.querySelectorAll('*')].filter(el=>el.clientHeight>60&&el.scrollHeight>el.clientHeight+8&&/auto|scroll/.test(getComputedStyle(el).overflowY)).sort((a,b)=>b.scrollHeight-a.scrollHeight)[0];
+    if(!scroll)return false;
+    if(!window.__liquidSpotifyScroll)window.__liquidSpotifyScroll={element:scroll,top:scroll.scrollTop};
+    const before=scroll.scrollTop;scroll.scrollTop+=Math.max(200,scroll.clientHeight*.8);return scroll.scrollTop>before;
+  }
+  if(service==='spotify'&&action==='spotify_library_restore'){
+    const saved=window.__liquidSpotifyScroll;if(saved?.element?.isConnected)saved.element.scrollTop=saved.top;
+    delete window.__liquidSpotifyScroll;return {ok:true};
+  }
+  if(service==='spotify'&&action==='spotify_playlist_target'){
+    document.querySelectorAll('[data-liquid-control="spotify-playlist"]').forEach(el=>el.removeAttribute('data-liquid-control'));
+    const controls=[...document.querySelectorAll('main button[data-testid="play-button"],[role="main"] button[data-testid="play-button"],[data-testid="main-view"] button[data-testid="play-button"]')];
+    const button=controls.find(el=>enabled(el)&&!el.closest('[data-testid="tracklist-row"],[data-testid="card"]'));
+    if(button&&/^(?:пауза|pause)(?:\s|$)/i.test(label(button))&&playing)return {found:true,already:true};
+    if(button)button.setAttribute('data-liquid-control','spotify-playlist');return {found:!!button};
+  }
+  if(service==='spotify'&&action==='spotify_playlist_selected'){window.__liquidSpotifyPlaylist=query;return {ok:true};}
+  if(service==='spotify'&&action==='spotify_playlist_details'){
+    const main=document.querySelector('main,[role="main"],[data-testid="main-view"]');
+    const heading=main?.querySelector('h1,[data-encore-id="text"][as="h1"]');
+    const image=main?.querySelector('[data-testid="playlist-image"] img,img[data-testid="playlist-image"],header img');
+    return {title:heading?.textContent?.trim()||'',artwork:image?.currentSrc||image?.src||''};
+  }
   // Read only rendered controls belonging to My Wave, never search results or account storage.
   const waveOptions=()=>{
     if(service!=='yandex')return [];
@@ -250,6 +313,10 @@
     return {
       connected:true,service,signed_in:signedIn,wave_origin:location.origin,waves:waveItems,
       active_wave:service==='yandex'?window.__liquidWaveSelection||null:null,
+      spotify_account:service==='spotify'?window.__liquidSpotifyAccount?.account||null:null,
+      spotify_account_hint:service==='spotify'?spotifyHint:null,
+      spotify_document:service==='spotify'?window.__liquidSpotifyDocument:null,
+      active_spotify_playlist:service==='spotify'?window.__liquidSpotifyPlaylist||null:null,
       title:metadata?.title||text(['[data-testid="context-item-info-title"]','.playbackSoundBadge__titleLink','[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
       artist:metadata?.artist||text(['[data-testid="context-item-info-artist"]','.playbackSoundBadge__lightLink','[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
       album:metadata?.album||'',

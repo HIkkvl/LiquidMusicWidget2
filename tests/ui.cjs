@@ -13,19 +13,28 @@ const {pathToFileURL} = require('node:url');
    const bindings=Object.fromEntries([['toggle','Num0'],['next','Num6'],['previous','Num4'],['play_pause','Num5'],['stop','Num2'],['like','Num1'],['voice','Num3']].map(([a,key])=>[a,{key,ctrl:false,alt:false,shift:false}]));
    window.voice={phase:'idle',message:'Скажите: «включи трек Династия»',text:''};
    window.calls=[];
+   window.spotifyAccount='account-a';window.spotifySaved={};
+   window.spotifyLists=[{id:'37i9dQZF1DXcBWIGoYBM5M',url:'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',title:'Daily Mix 1',artwork:''},{id:'37i9dQZF1E35tjSnE7z5If',url:'https://open.spotify.com/playlist/37i9dQZF1E35tjSnE7z5If',title:'Мои любимые треки',artwork:''}];
    window.waves=['Это поп!','Саундскейп','Незнакомое','Бежать быстрее ветра','Артист Real Girl','Встряхнуть Мою волну','Русский рок','Хочется электроники','Мистическое настроение','Инди','Метал','Джаз','Релакс','Ретро'].map(title=>({id:title,title,artwork:''}));
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null,service:window.service||'yandex'}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null,service:window.service||'yandex',spotify_account:window.spotifyAccount,active_spotify_playlist:window.spotifyActive||null}),
      get_design:async()=>({ok:true,design:window.design||'aurora'}),
      set_design:async(design)=>{window.design=design;return {ok:true,design};},
      set_service:async(service)=>{window.service=service;return {ok:true};},
      get_discord:async()=>({ok:true,enabled:false,status:'disabled'}),
      get_waves:async()=>window.waveError?{ok:false,error:'Войдите в Яндекс Музыку'}:{ok:true,waves:window.waves,wave_origin:'https://music.yandex.kz'},
+     get_spotify_playlists:async()=>({ok:true,account:window.spotifyAccount,playlists:[...(window.spotifyAccount==='account-a'?window.spotifyLists:[]),...(window.spotifySaved[window.spotifyAccount]||[])]}),
+     add_spotify_playlist:async url=>{
+       if(!/^https:\/\/open\.spotify\.com\/playlist\/[A-Za-z0-9]{22}(?:\?|$)/.test(url))return {ok:false,error:'Нужна ссылка на плейлист Spotify'};
+       const saved=window.spotifySaved[window.spotifyAccount]||=[];const canonical=url.split('?')[0];const added=!saved.some(p=>p.url===canonical);
+       if(added)saved.push({id:canonical.split('/').at(-1),url:canonical,title:'Added from link',artwork:''});
+       return {ok:true,added,account:window.spotifyAccount,playlists:[...(window.spotifyAccount==='account-a'?window.spotifyLists:[]),...saved]};
+     },
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
-     command:async(...args)=>{window.calls.push(args);if(args[0]==='wave')window.activeWave=args[1];if(args[0]==='wave_reset'){if(window.failWaveReset)return {ok:false,error:'Не удалось включить Мою волну'};window.activeWave=null;}return {ok:true};},
+     command:async(...args)=>{window.calls.push(args);if(args[0]==='spotify_playlist')window.spotifyActive=args[1].split('/').at(-1);if(args[0]==='wave')window.activeWave=args[1];if(args[0]==='wave_reset'){if(window.failWaveReset)return {ok:false,error:'Не удалось включить Мою волну'};window.activeWave=null;}return {ok:true};},
      setup_browser:async(persist)=>{
        if(window.browserStatus.embedded){window.accountShown=true;return {ok:true,browser:window.browserStatus};}
        if(window.cancelSetup)return {ok:false,cancelled:true,browser:window.browserStatus};
@@ -60,7 +69,7 @@ const {pathToFileURL} = require('node:url');
  assert.ok(await page.locator('#volume').isVisible(),'Volume remains on the main screen with Liquid Mood open');
  await page.locator('[data-mood=dismiss]').click();
  assert.equal(await page.locator('.genre').count(),14);
- assert.equal(await page.locator('.genres-section h2').textContent(),'Моя волна');
+ assert.equal(await page.locator('.genres-section h2').first().textContent(),'Моя волна');
  assert.equal(await page.locator('.genre-name').first().textContent(),'Это поп!');
  await page.locator('#voice-button').click();
  await page.waitForFunction(()=>document.getElementById('voice-button').getAttribute('aria-pressed')==='true');
@@ -190,7 +199,7 @@ const {pathToFileURL} = require('node:url');
  await page.setViewportSize({width:350,height:600});
  const metrics=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:innerWidth,bottom:document.querySelector('.bottom-hint').getBoundingClientRect().bottom,height:innerHeight}));
  assert.equal(metrics.scroll,metrics.width);assert.ok(metrics.bottom<=metrics.height,JSON.stringify(metrics));
- assert.ok(await page.locator('.genres').evaluate(el=>el.scrollHeight>el.clientHeight));
+ assert.ok(await page.locator('#genres').evaluate(el=>el.scrollHeight>el.clientHeight));
  await page.locator('#settings-button').click();
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  const saveBounds=await page.locator('#save-shortcuts').boundingBox();
@@ -229,7 +238,28 @@ const {pathToFileURL} = require('node:url');
    assert.equal(await page.locator('.brand strong').textContent(),service==='spotify'?'Spotify':'SoundCloud');
    assert.ok((await page.locator('.brand-mark').getAttribute('src')).endsWith('/'+service+'.png'),'Header uses the official service logo');
    assert.ok(await page.locator('#service-search').isVisible());
-   assert.equal(await page.locator('.genres-section').isVisible(),false,'My Wave stays exclusive to Yandex');
+   assert.equal(await page.locator('.genres-section').first().isVisible(),false,'My Wave stays exclusive to Yandex');
+   if(service==='spotify'){
+     await page.waitForFunction(()=>document.querySelectorAll('.spotify-playlist').length===2);
+     assert.ok(await page.locator('#spotify-library').isVisible());
+     assert.equal(await page.locator('#add-spotify-playlist').textContent(),'Добавить плейлист');
+     await page.locator('#add-spotify-playlist').click();
+     await page.locator('#spotify-playlist-url').fill('https://example.com/playlist/0123456789ABCDEFGHIJKL');
+     await page.locator('#save-spotify-playlist').click();
+     assert.ok(await page.locator('#spotify-playlist-error').isVisible());
+     await page.locator('#spotify-playlist-url').fill('https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL?si=shared');
+     await page.locator('#save-spotify-playlist').click();
+     assert.equal(await page.locator('#spotify-playlist-dialog').isVisible(),false);
+     assert.equal(await page.locator('.spotify-playlist').count(),3);
+     await page.locator('.spotify-playlist').last().click();
+     assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['spotify_playlist','https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL']);
+     await page.evaluate(async()=>{window.spotifyAccount='account-b';await poll();});
+     await page.waitForFunction(()=>document.querySelectorAll('.spotify-playlist').length===0);
+     await page.evaluate(async()=>{window.spotifyAccount='account-a';await poll();});
+     await page.waitForFunction(()=>document.querySelectorAll('.spotify-playlist').length===3);
+     await page.locator('#add-spotify-playlist').click();await page.keyboard.press('Escape');
+     assert.equal(await page.locator('#spotify-playlist-dialog').isVisible(),false,'Escape closes import dialog');
+   }
    await page.locator('#service-query').fill('Test Artist Test Song');
    await page.locator('#service-search-play').click();
    assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['search_play','Test Artist Test Song']);

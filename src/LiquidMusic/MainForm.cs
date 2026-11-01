@@ -218,6 +218,8 @@ internal sealed class MainForm : Form
             case "get_waves":
                 var waves=await browser.CommandAsync("yandex","wave_list");
                 waves["ok"]=true;return waves;
+            case "get_spotify_playlists":return await browser.SpotifyLibraryAsync();
+            case "add_spotify_playlist":return await browser.SpotifyLibraryAsync(Arg(0)!.GetValue<string>());
             case "set_assistant_provider":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
                 assistant.SelectProvider(Arg(0)!.GetValue<string>());
@@ -421,7 +423,7 @@ internal sealed class MainForm : Form
     }
     private async Task RunCommandAsync(string action,JsonNode? value)
     {
-        var result=await browser.CommandAsync(settings.Service,action,action is "genre" or "search_play" or "wave"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
+        var result=await browser.CommandAsync(settings.Service,action,action is "genre" or "search_play" or "wave" or "spotify_playlist"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
         snapshot=result;
         if(action is not("volume" or "genre" or "open"))Notify(action,result);
     }

@@ -45,7 +45,12 @@ internal static class ProfileStorage
         try
         {
             CopyProfile(new DirectoryInfo(source),new DirectoryInfo(staging));
-            Directory.Move(staging,target);
+            // Windows scanners can briefly hold freshly copied profile files.
+            for(var attempt=0;;attempt++)
+            {
+                try{Directory.Move(staging,target);break;}
+                catch(Exception move) when(attempt<4&&move is IOException or UnauthorizedAccessException){Thread.Sleep(75*(attempt+1));}
+            }
             return target;
         }
         catch(Exception error) when(error is IOException or UnauthorizedAccessException)

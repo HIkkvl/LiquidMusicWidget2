@@ -67,6 +67,10 @@
     </div>
   </section>
   <section class="genres-section" aria-label="Подборки Моей волны"><div class="section-heading"><h2>Моя волна</h2><button type="button" id="refresh-waves" class="wave-refresh" aria-label="Обновить подборки Моей волны">Обновить</button></div><div id="genres" class="genres" tabindex="0" aria-label="Подборки из Яндекс Музыки"></div></section>
+  <section id="spotify-library" class="genres-section spotify-library" aria-label="Миксы и плейлисты Spotify" hidden>
+    <div class="section-heading"><h2>Миксы и плейлисты</h2><div class="spotify-library-actions"><button type="button" id="refresh-spotify-playlists" class="wave-refresh" aria-label="Обновить миксы и плейлисты" title="Обновить список">↻</button><button type="button" id="add-spotify-playlist" class="wave-refresh">Добавить плейлист</button></div></div>
+    <div id="spotify-playlists" class="genres" tabindex="0" aria-label="Плейлисты аккаунта Spotify"></div>
+  </section>
   <section id="service-search" class="service-search glass" aria-label="Поиск треков" hidden>
     <h2 id="service-search-title">Найти трек</h2>
     <p>Введите исполнителя и название или попросите голосового помощника.</p>
@@ -92,6 +96,15 @@
   <div class="bottom-hint"><span id="open-shortcut">Num0</span> открыть / скрыть <span class="hint-separator">·</span> Esc скрыть</div>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
+<dialog id="spotify-playlist-dialog" aria-labelledby="spotify-playlist-heading">
+  <form id="spotify-playlist-form" class="playlist-panel">
+    <h2 id="spotify-playlist-heading">Добавить плейлист</h2>
+    <label for="spotify-playlist-url">Ссылка на плейлист Spotify</label>
+    <input id="spotify-playlist-url" type="url" maxlength="2048" placeholder="https://open.spotify.com/playlist/…" required autocomplete="off">
+    <p id="spotify-playlist-error" role="alert" hidden></p>
+    <div class="playlist-dialog-actions"><button id="cancel-spotify-playlist" type="button">Отмена</button><button id="save-spotify-playlist" type="submit">Добавить</button></div>
+  </form>
+</dialog>
 <dialog id="settings-dialog">
   <div class="settings-panel glass">
     <div class="settings-heading"><div><span class="eyebrow">ПОД ВАШ РИТМ</span><h2>Настройки виджета</h2></div><button class="icon-button" id="dismiss-settings" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></div>
