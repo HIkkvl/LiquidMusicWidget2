@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Drawing.Drawing2D;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -10,6 +11,7 @@ namespace LiquidMusic;
 internal sealed class EmbeddedMusicHost : IDisposable
 {
     private readonly string profile;
+    private readonly Func<string> design;
     private readonly Dictionary<string,MusicWindow> windows=new();
     private readonly Dictionary<string,bool> accounts=new();
     private readonly Dictionary<string,string> targets=new();
@@ -18,7 +20,8 @@ internal sealed class EmbeddedMusicHost : IDisposable
     private Task? initializing;
     private bool disposed;
     public string Endpoint {get;private set;}="";
-    public EmbeddedMusicHost(string? profile=null)=>this.profile=profile??Path.Combine(AppPaths.Data,"music-webview");
+    public EmbeddedMusicHost(string? profile=null,Func<string>? design=null)
+    {this.profile=profile??Path.Combine(AppPaths.Data,"music-webview");this.design=design??(()=>"aurora");}
     internal IEnumerable<MusicWindow> Windows=>windows.Values;
     internal string? Target(string service)=>targets.GetValueOrDefault(service);
     public JsonObject Status(string service)
@@ -66,7 +69,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
     }
     private async Task<MusicWindow> CreateWindowAsync(string service)
     {
-        var window=new MusicWindow(service);
+        var window=new MusicWindow(service,design);
         try
         {
             window.StartBackground();
@@ -155,7 +158,16 @@ internal sealed class EmbeddedMusicHost : IDisposable
     public async Task ShowLoginAsync(string service,string origin)
     {
         var window=await EnsureServiceAsync(service,origin);
-        window.ShowLogin(!accounts.GetValueOrDefault(service));
+        window.View.CoreWebView2.Navigate(LoginUrl(service,origin,accounts.GetValueOrDefault(service)));
+        window.ShowLogin(true);
+    }
+    internal static string LoginUrl(string service,string origin,bool signedIn=false)
+    {
+        if(!AllowedNavigation(origin,service)||!BrowserController.MatchesService(origin,service))
+            throw new ArgumentException("Ожидался адрес музыкального сервиса.",nameof(origin));
+        var destination=Uri.EscapeDataString(origin);
+        return service=="youtube"?"https://accounts.google.com/ServiceLogin?continue="+destination:
+            "https://passport.yandex.ru/auth"+(signedIn?"/add":"")+"?retpath="+destination;
     }
     public void Dispose()
     {
@@ -167,8 +179,10 @@ internal sealed class EmbeddedMusicHost : IDisposable
     internal sealed class MusicWindow : Form
     {
         internal readonly WebView2 View=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(18,18,22)};
-        private readonly Label address=new(){Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft,Padding=new(12,0,4,0),ForeColor=Color.White};
-        private readonly Panel bar=new(){Dock=DockStyle.Top,Height=44,BackColor=Color.FromArgb(28,28,34)};
+        private readonly Label address=new(){Dock=DockStyle.Bottom,Height=24,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft,ForeColor=Color.FromArgb(190,184,205)};
+        private readonly LoginHeader bar=new(){Dock=DockStyle.Top,Height=98,Padding=new(24,14,18,12)};
+        private readonly Panel footer=new(){Dock=DockStyle.Bottom,Height=44,Padding=new(24,0,12,0)};
+        private readonly Func<string> design;
         private bool shutdown;
         internal string Origin="";
         internal bool LoginVisible {get;private set;}
@@ -176,37 +190,60 @@ internal sealed class EmbeddedMusicHost : IDisposable
         internal event Action? UserReturned;
         protected override bool ShowWithoutActivation=>!LoginVisible;
         protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80;return p;}}
-        internal MusicWindow(string service)
+        internal MusicWindow(string service,Func<string> design)
         {
+            this.design=design;
             Text=service=="youtube"?"Вход в YouTube — Liquid Music":"Вход в Яндекс Музыку — Liquid Music";
-            FormBorderStyle=FormBorderStyle.SizableToolWindow;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
-            var done=new Button{Text="Вернуться в виджет",Dock=DockStyle.Right,Width=160};
+            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
+            Font=new Font("Segoe UI",10);DoubleBuffered=true;
+            var title=new Label{Text=Text,Dock=DockStyle.Fill,ForeColor=Color.White,Font=new Font("Segoe UI Semibold",17),TextAlign=ContentAlignment.MiddleLeft};
+            var done=new Button{Text="Вернуться в виджет   ×",Dock=DockStyle.Right,Width=200,FlatStyle=FlatStyle.Flat,ForeColor=Color.White,BackColor=Color.FromArgb(48,39,59),Cursor=Cursors.Hand};
+            done.FlatAppearance.BorderSize=0;
             done.Click+=(_,_)=>{ReturnToBackground();UserReturned?.Invoke();};
-            bar.Controls.Add(address);bar.Controls.Add(done);Controls.Add(View);Controls.Add(bar);
+            foreach(var control in new Control[]{bar,title,address})control.MouseDown+=(_,e)=>{if(e.Button==MouseButtons.Left){Native.ReleaseCapture();Native.SendMessage(Handle,0xA1,2,0);}};
+            var hint=new Label{Text="Войдите в аккаунт — после входа останется только компактный виджет",Dock=DockStyle.Fill,ForeColor=Color.FromArgb(172,169,190),TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};
+            footer.Controls.Add(hint);
+            bar.Controls.Add(title);bar.Controls.Add(done);bar.Controls.Add(address);
+            Controls.Add(View);Controls.Add(footer);Controls.Add(bar);
+            SizeChanged+=(_,_)=>{var old=Region;using var path=DesktopCapture.Rounded(ClientRectangle,LoginVisible?22:0);Region=LoginVisible?new Region(path):null;old?.Dispose();};
             FormClosing+=(_,e)=>{if(!shutdown){e.Cancel=true;ReturnToBackground();UserReturned?.Invoke();}};
         }
         internal void SetAddress(string url)
         {
-            address.Text=Uri.TryCreate(url,UriKind.Absolute,out var uri)&&uri.Scheme=="https"?uri.Host:"Музыкальный аккаунт";
+            address.Text=Uri.TryCreate(url,UriKind.Absolute,out var uri)&&uri.Scheme=="https"?"Защищённое подключение  ·  "+uri.Host:"Музыкальный аккаунт";
         }
         internal void StartBackground()
         {
-            Location=new(-32000,-32000);ClientSize=new(1280,900);bar.Visible=false;Show();
+            Location=new(-32000,-32000);ClientSize=new(1280,900);bar.Visible=false;footer.Visible=false;Show();
         }
         internal void ShowLogin(bool autoHide)
         {
-            AutoHideAfterLogin=autoHide;LoginVisible=true;bar.Visible=true;
-            ClientSize=new(560,740);
+            AutoHideAfterLogin=autoHide;LoginVisible=true;bar.Visible=true;footer.Visible=true;
+            bar.Abyss=design()=="abyss";bar.Invalidate();
+            BackColor=footer.BackColor=bar.Abyss?Color.FromArgb(13,22,39):Color.FromArgb(25,18,32);
+            Padding=new(8,0,8,8);
+            ClientSize=new(1040,860);
             var area=Screen.FromPoint(Cursor.Position).WorkingArea;
-            Size=new(Math.Min(Width,area.Width),Math.Min(Height,area.Height));
+            Size=new(Math.Min(Width,Math.Max(320,area.Width-32)),Math.Min(Height,Math.Max(320,area.Height-32)));
             Location=new(area.Left+(area.Width-Width)/2,area.Top+(area.Height-Height)/2);
             TopMost=true;Show();Activate();View.Focus();
         }
         internal void ReturnToBackground()
         {
             LoginVisible=false;AutoHideAfterLogin=false;TopMost=false;Location=new(-32000,-32000);
-            bar.Visible=false;ClientSize=new(1280,900);
+            bar.Visible=false;footer.Visible=false;Padding=Padding.Empty;ClientSize=new(1280,900);
         }
         internal void Shutdown(){if(shutdown)return;shutdown=true;View.Dispose();Close();Dispose();}
+        private sealed class LoginHeader:Panel
+        {
+            internal bool Abyss;
+            protected override void OnPaintBackground(PaintEventArgs e)
+            {
+                using var gradient=new LinearGradientBrush(ClientRectangle,Abyss?Color.FromArgb(24,47,73):Color.FromArgb(65,31,61),Abyss?Color.FromArgb(22,25,48):Color.FromArgb(32,23,47),15f);
+                e.Graphics.FillRectangle(gradient,ClientRectangle);
+                using var accent=new Pen(Abyss?Color.FromArgb(92,161,231):Color.FromArgb(214,95,176),2);
+                e.Graphics.DrawLine(accent,24,Height-1,Width-24,Height-1);
+            }
+        }
     }
 }

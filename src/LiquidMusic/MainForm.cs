@@ -14,7 +14,7 @@ internal sealed class MainForm : Form
     private readonly Settings settings=new();
     private readonly WebView2 view=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(11,22,40)};
     private readonly BrowserController browser;
-    private readonly EmbeddedMusicHost music=new();
+    private readonly EmbeddedMusicHost music;
     private readonly DeepSeekAssistant assistant;
     private readonly HandoffServer handoff;
     private readonly VoiceAssistant voice;
@@ -40,6 +40,7 @@ internal sealed class MainForm : Form
     protected override bool ShowWithoutActivation => true;
     public MainForm(bool hidden,bool test=false)
     {
+        music=new(design:()=>Settings.NormalizeDesign(settings.Value["design"]));
         browser=new(settings,music);
         assistant=new(settings);
         discord.Configure(settings.Value["discord"]);

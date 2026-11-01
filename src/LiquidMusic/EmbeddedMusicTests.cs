@@ -38,6 +38,14 @@ internal static class EmbeddedMusicTests
         Check(!EmbeddedMusicHost.AllowedNavigation("https://yandex.ru.evil.example/auth","yandex"),"Domain boundary");
         Check(!EmbeddedMusicHost.AllowedNavigation("http://music.yandex.kz/","yandex"),"HTTPS boundary");
         Check(!EmbeddedMusicHost.AllowedNavigation("https://liquid.local/","yandex"),"Remote player cannot navigate to native bridge");
+        foreach(var domain in new[]{"ru","kz","com"})
+        {
+            var origin="https://music.yandex."+domain+"/";
+            var login=new Uri(EmbeddedMusicHost.LoginUrl("yandex",origin));
+            Check(login.Host=="passport.yandex.ru"&&login.AbsolutePath=="/auth","Direct Yandex ID sign-in");
+            Check(Uri.UnescapeDataString(login.Query)=="?retpath="+origin,"Sign-in preserves regional music destination");
+        }
+        Check(new Uri(EmbeddedMusicHost.LoginUrl("yandex","https://music.yandex.kz/",true)).AbsolutePath=="/auth/add","Connected account opens account switcher");
         var testRoot=Path.Combine(AppPaths.Data,"embedded-tests",Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(testRoot);
         var settings=new Settings(Path.Combine(testRoot,"settings.json"));
@@ -82,6 +90,10 @@ internal static class EmbeddedMusicTests
             await page.WaitForFunctionAsync("()=>!!document.querySelector('[class*=Vibe], [class*=PlayerBar]')",null,new(){Timeout=45000});
             var snapshot=await controller.SnapshotAsync("yandex");
             checks.Add("Yandex Music loads inside hidden WebView2; fresh profile needs user sign-in");
+            await page.GotoAsync(EmbeddedMusicHost.LoginUrl("yandex","https://music.yandex.kz/"),new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=45000});
+            Check(new Uri(page.Url).Host=="passport.yandex.ru","Official Yandex ID page opens directly");
+            await page.Locator("input:visible:not([type=hidden])").First.WaitForAsync(new(){Timeout=30000});
+            checks.Add("Official Yandex ID sign-in form loads directly with regional return address");
             Write(new{ok=true,checks,service="yandex",signedIn=snapshot["signed_in"]?.GetValue<bool>()==true});return;
         }
         await page.WaitForSelectorAsync("#play");
@@ -115,6 +127,17 @@ internal static class EmbeddedMusicTests
         Check(await restoredPage.EvaluateAsync<bool>("()=>document.cookie.includes('embeddedSessionProbe=ok')"),"Session cookie survives destruction and recreation of the music engine");
         Check(Native.GetForegroundWindow()==foreground,"Restoring saved music session stays invisible");
         checks.Add("Persistent login cookie survives music-engine restart");
+        await restored.ShowLoginAsync("yandex","https://music.yandex.kz/");
+        await restoredPage.WaitForURLAsync("https://passport.yandex.ru/auth?**");
+        await restored.EnsureServiceAsync("yandex","https://music.yandex.kz/");
+        Check(new Uri(restoredPage.Url).Host=="passport.yandex.ru","Widget polling does not navigate away from sign-in");
+        var loginWindow=restored.Windows.Single();
+        var workArea=Screen.FromControl(loginWindow).WorkingArea;
+        Check(loginWindow.LoginVisible&&loginWindow.Width==Math.Min(1040,Math.Max(320,workArea.Width-32)),"Sign-in uses enlarged window fitted to monitor");
+        Check(workArea.Contains(loginWindow.Bounds)&&loginWindow.Region!=null,"Rounded sign-in stays within working area");
+        restored.SetSignedIn("yandex",true);
+        Check(!loginWindow.LoginVisible&&Screen.AllScreens.All(screen=>!screen.Bounds.IntersectsWith(loginWindow.Bounds)),"Successful sign-in restores hidden widget engine");
+        checks.Add("Direct regional sign-in, enlarged rounded window, polling preservation and automatic return to widget");
         Write(new{ok=true,checks});
     }
 }
