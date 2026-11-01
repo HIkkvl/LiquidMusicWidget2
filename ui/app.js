@@ -40,6 +40,7 @@ function renderWaves(waves=[],message='Войдите в Яндекс Музык
   if(!waves.length){const hint=document.createElement('p');hint.className='wave-empty';hint.textContent=message;$('genres').append(hint);return;}
   waves.forEach((wave,index)=>{
     const row=document.createElement('button');row.type='button';row.className='genre';
+    row.dataset.wave=wave.id;row.classList.toggle('selected',currentState.active_wave===wave.id);
     row.title='Включить волну: '+wave.title;row.setAttribute('aria-label',row.title);row.disabled=!!wave.disabled;
     const img=document.createElement('img');img.alt='';img.referrerPolicy='no-referrer';
     const fallback='assets/genre-'+(index%14)+'.svg';
@@ -52,11 +53,19 @@ function renderWaves(waves=[],message='Войдите в Яндекс Музык
       if(wavesLoading||waveSelecting)return;waveSelecting=true;row.disabled=true;
       try{
         const result=await command('wave',wave.id);
-        if(result.ok){document.querySelectorAll('.genre').forEach(el=>el.classList.remove('selected'));row.classList.add('selected');toast('Выбрана волна «'+wave.title+'»');}
-      }finally{waveSelecting=false;row.disabled=!!wave.disabled;}
+        if(result.ok){renderState({...currentState,...result,active_wave:wave.id});toast('Выбрана волна «'+wave.title+'»');}
+      }finally{waveSelecting=false;row.disabled=!!wave.disabled;$('track-context').disabled=!currentState.connected||!currentState.active_wave;}
     });
     $('genres').append(row);
   });
+}
+async function resetWave() {
+  if(waveSelecting||!currentState.active_wave)return;
+  waveSelecting=true;$('track-context').disabled=true;
+  try{
+    const result=await command('wave_reset');
+    if(result.ok){renderState({...currentState,...result,active_wave:null});toast('Играет Моя волна');}
+  }finally{waveSelecting=false;$('track-context').disabled=!currentState.connected||!currentState.active_wave;}
 }
 async function refreshWaves() {
   if(wavesLoading)return;wavesLoading=true;wavesAttempted=true;
@@ -297,7 +306,13 @@ function renderState(snapshot) {
   $('track-title').title=hasTrack?snapshot.title:'';
   $('track-artist').textContent=hasTrack?snapshot.artist:'Включите любимый трек';
   $('track-artist').title=hasTrack?snapshot.artist:'';
-  $('track-context').textContent=snapshot.playing && connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА';
+  const activeWave=connected&&waveService==='yandex'?snapshot.active_wave:null;
+  const context=$('track-context');
+  context.textContent=activeWave?activeWave+' ×':snapshot.playing&&connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА';
+  context.classList.toggle('wave-active',!!activeWave);context.disabled=!activeWave||waveSelecting;
+  context.title=activeWave?'Отключить «'+activeWave+'» и включить Мою волну':'';
+  context.setAttribute('aria-label',activeWave?context.title:context.textContent);
+  document.querySelectorAll('.genre').forEach(row=>row.classList.toggle('selected',!!activeWave&&row.dataset.wave===activeWave));
   const artwork=hasTrack?snapshot.artwork||'':'';
   if(artwork!==lastArtwork){
     lastArtwork=artwork;
@@ -456,6 +471,7 @@ async function connect() {
   });
 }
 $('refresh-waves').addEventListener('click',refreshWaves);
+$('track-context').addEventListener('click',resetWave);
 $('settings-button').addEventListener('click',()=>showSettings());
 $('keys-button').addEventListener('click',()=>showSettings('controls'));
 document.querySelectorAll('[data-settings-tab]').forEach(tab=>{

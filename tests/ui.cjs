@@ -17,14 +17,14 @@ const {pathToFileURL} = require('node:url');
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz'}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null}),
      get_design:async()=>({ok:true,design:window.design||'aurora'}),
      set_design:async(design)=>{window.design=design;return {ok:true,design};},
      get_discord:async()=>({ok:true,enabled:false,status:'disabled'}),
      get_waves:async()=>window.waveError?{ok:false,error:'Войдите в Яндекс Музыку'}:{ok:true,waves:window.waves,wave_origin:'https://music.yandex.kz'},
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
-     command:async(...args)=>{window.calls.push(args);return {ok:true};},
+     command:async(...args)=>{window.calls.push(args);if(args[0]==='wave')window.activeWave=args[1];if(args[0]==='wave_reset'){if(window.failWaveReset)return {ok:false,error:'Не удалось включить Мою волну'};window.activeWave=null;}return {ok:true};},
      setup_browser:async(persist)=>{
        if(window.browserStatus.embedded){window.accountShown=true;return {ok:true,browser:window.browserStatus};}
        if(window.cancelSetup)return {ok:false,cancelled:true,browser:window.browserStatus};
@@ -76,6 +76,20 @@ const {pathToFileURL} = require('node:url');
  await page.locator('.genre').nth(0).click();
  assert.equal(await page.locator('.genre.selected').count(),1);
  assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['wave','Это поп!'],'Wave selection uses its exact ID, never genre search');
+ assert.equal(await page.locator('#track-context').textContent(),'Это поп! ×');
+ await page.waitForTimeout(1300);
+ assert.equal(await page.locator('.genre.selected').count(),1,'Polling preserves selected genre');
+ await page.evaluate(()=>{window.failWaveReset=true;});
+ await page.locator('#track-context').click();
+ assert.equal(await page.locator('#track-context').textContent(),'Это поп! ×','Failed reset retains badge');
+ assert.equal(await page.locator('.genre.selected').count(),1);
+ await page.evaluate(()=>{window.failWaveReset=false;});
+ await page.locator('#track-context').press('Enter');
+ assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['wave_reset',null]);
+ assert.equal(await page.locator('.genre.selected').count(),0);
+ assert.equal(await page.locator('#track-context').textContent(),'СЕЙЧАС ИГРАЕТ');
+ assert.ok(await page.locator('#track-context').isDisabled());
+ await page.locator('.genre').first().click();
  await page.evaluate(()=>{window.savedWaves=window.waves;window.waves=[];window.waveError=true;});
  await page.locator('#refresh-waves').click();
  assert.equal(await page.locator('.genre').count(),0);
@@ -83,6 +97,7 @@ const {pathToFileURL} = require('node:url');
  await page.evaluate(()=>{window.waves=window.savedWaves;window.waveError=false;});
  await page.locator('#refresh-waves').click();
  assert.equal(await page.locator('.genre').count(),14);
+ assert.equal(await page.locator('.genre.selected').count(),1,'Refreshing cards retains selection');
  await page.evaluate(()=>document.getElementById('toast').hidden=true);
  await page.screenshot({path:'tests/ui-preview.png'});
  await page.locator('#settings-button').click();

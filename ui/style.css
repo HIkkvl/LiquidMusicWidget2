@@ -122,6 +122,11 @@ h1{order:1;font-size:17px;font-weight:600;line-height:1.3;letter-spacing:.2px;te
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .track-meta .eyebrow::first-letter{text-transform:uppercase}
+.track-meta button.eyebrow{border:0;font-family:inherit;text-align:left;cursor:default}
+body[data-design] .track-meta .eyebrow.wave-active{display:inline-block;cursor:pointer;text-transform:none}
+.track-meta .eyebrow.wave-active:hover{filter:brightness(1.2)}
+.track-meta .eyebrow.wave-active:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+.track-meta .eyebrow.wave-active:disabled{cursor:wait;opacity:.65}
 .source-pill{display:none}
 
 .heart{position:absolute;right:-6px;top:-6px;color:var(--text);background:rgba(255,255,255,.06)}
@@ -482,6 +487,7 @@ body[data-quality="low"] .cover-shine{display:none}
   .cover-wrap{width:60px;height:60px}
   .track-meta{padding-top:4px}
   .track-meta .eyebrow{display:none}
+  body[data-design] .track-meta .eyebrow.wave-active{margin-top:4px;padding:3px 8px;font-size:10px}
   .timeline{margin-top:10px}
   .play-button{width:48px;height:48px}
   .voice-panel{padding:8px 10px}

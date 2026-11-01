@@ -109,6 +109,15 @@ internal static class EmbeddedMusicTests
         Check(await page.EvaluateAsync<bool>("()=>document.getElementById('audio').paused"),"Pause reaches internal audio");
         Check(Native.GetForegroundWindow()==foreground,"Background playback never steals Windows foreground");
         checks.Add("Hidden audio playback, trusted play/pause, volume and Windows focus preservation");
+        var waveFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave-wheel.html"));
+        await page.UnrouteAllAsync();
+        await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=waveFixture}));
+        await page.ReloadAsync();
+        var genre=await controller.CommandAsync("yandex","wave","Русский рок");
+        Check(genre["active_wave"]?.GetValue<string>()=="Русский рок","Embedded command exposes selected genre");
+        var defaultWave=await controller.CommandAsync("yandex","wave_reset");
+        Check(defaultWave["active_wave"]==null&&defaultWave["playing"]?.GetValue<bool>()==true,"Embedded reset clears genre while music keeps playing");
+        checks.Add("Full embedded controller genre selection and default-wave reset");
         await page.EvaluateAsync("()=>{document.cookie='embeddedSessionProbe=ok; Max-Age=3600; Secure; SameSite=Lax';}");
         await page.ReloadAsync();
         Check(await page.EvaluateAsync<bool>("()=>document.cookie.includes('embeddedSessionProbe=ok')"),"Separate music profile retains session cookies");

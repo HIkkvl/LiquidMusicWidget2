@@ -242,6 +242,30 @@ internal static class SelfTests
             Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Already playing station succeeds without toggling pause");
             Check(await page.EvaluateAsync<int>("()=>window.waveClicks.length")==1,"Do not pause the selected wave");
             passed.Add("Real wheel structure, Swiper reveal, correct station controls, no layout scrolling or pause toggle");
+            foreach(var domain in new[]{"ru","kz","com"})
+            {
+                await page.GotoAsync("https://music.yandex."+domain+"/");
+                Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Select genre before reset");
+                var selected=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(selected.GetProperty("active_wave").GetString()=="Русский рок","Snapshot reports active genre");
+                await page.EvaluateAsync("()=>{document.querySelector('[data-wave=rock]').setAttribute('aria-label','Воспроизведение');document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Воспроизведение');}");
+                selected=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(selected.GetProperty("active_wave").GetString()=="Русский рок","Pausing keeps the selected genre");
+                await page.EvaluateAsync("()=>document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Пауза')");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                var reset=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(reset.GetProperty("active_wave").ValueKind==JsonValueKind.Null&&reset.GetProperty("playing").GetBoolean(),"Default wave clears genre and continues playing: "+domain);
+                Check(await page.EvaluateAsync<int>("()=>window.defaultWaveClicks")==1,"Reset uses trusted main wave control");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                Check(await page.EvaluateAsync<int>("()=>window.defaultWaveClicks")==1,"Do not pause an already playing default wave");
+            }
+            await page.EvaluateAsync("()=>{document.querySelector('[data-default-wave]').setAttribute('aria-label','Воспроизведение Моей волны');document.querySelector('[data-wave=rock]').setAttribute('aria-label','Пауза');const overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;z-index:999999';document.body.append(overlay);}");
+            var resetBlocked=false;
+            try{await BrowserController.StartDefaultWaveAsync(page,script);}catch(InvalidOperationException){resetBlocked=true;}
+            Check(resetBlocked,"Reset respects real overlays");
+            var blockedState=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+            Check(blockedState.GetProperty("active_wave").GetString()=="Русский рок","Failed reset preserves genre");
+            passed.Add("Active genre, paused selection, trusted default-wave reset on ru/kz/com, idempotency and overlay failure preservation");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}

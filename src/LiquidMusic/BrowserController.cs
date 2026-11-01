@@ -270,6 +270,13 @@ internal sealed class BrowserController : IAsyncDisposable
             // inside Chromium so background playback accepts trusted input.
             focus=await page.Context.NewCDPSessionAsync(page);
             await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",true}});
+            if(action=="wave_reset")
+            {
+                if(service!="yandex")throw new InvalidOperationException("Моя волна доступна в Яндекс Музыке.");
+                await StartDefaultWaveAsync(page,script);
+                await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service,query=(string?)null});
+                return await ReadAsync(page,service);
+            }
             if(action is "wave_list" or "wave")
             {
                 if(service!="yandex")throw new InvalidOperationException("Моя волна доступна в Яндекс Музыке.");
@@ -284,7 +291,11 @@ internal sealed class BrowserController : IAsyncDisposable
                     var state=await ReadAsync(page,service);
                     var station=await page.EvaluateAsync<JsonElement>(script,new{action="wave_status",service,query});
                     var changed=new[]{"title","artist","track_url"}.Any(field=>state[field]?.ToJsonString()!=beforeWave[field]?.ToJsonString());
-                    if(state["playing"]?.GetValue<bool>()==true&&(station.GetProperty("playing").GetBoolean()||changed))return state;
+                    if(state["playing"]?.GetValue<bool>()==true&&(station.GetProperty("playing").GetBoolean()||changed))
+                    {
+                        await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service,query});
+                        state["active_wave"]=query;return state;
+                    }
                 }
                 throw new InvalidOperationException("Подборка выбрана, но воспроизведение не началось. Проверьте вход и подписку в Яндекс Музыке.");
             }
@@ -299,6 +310,7 @@ internal sealed class BrowserController : IAsyncDisposable
                 if(string.IsNullOrWhiteSpace(query)||query.Length>200)throw new ArgumentException("Укажите название трека");
                 if(service=="youtube")await SearchYouTubeAsync(page,query);
                 else await SearchYandexAsync(page,query,script);
+                await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service,query=(string?)null});
             }
             else if(action=="volume")
             {
@@ -498,6 +510,31 @@ internal sealed class BrowserController : IAsyncDisposable
             await Task.Delay(150);
         }
         return false;
+    }
+    internal static async Task StartDefaultWaveAsync(IPage page,string script)
+    {
+        var before=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+        for(var attempt=0;attempt<3;attempt++)
+        {
+            var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_target",service="yandex"});
+            if(target.GetProperty("playing").GetBoolean())return;
+            if(!target.GetProperty("found").GetBoolean())
+            {
+                var home=await page.EvaluateAsync<bool>(script,new{action="wave_home_target",service="yandex"});
+                if(!home||!await ClickControlAsync(page,"wave-home"))throw new InvalidOperationException("Не удалось открыть Мою волну. Закройте диалог и повторите.");
+            }
+            else if(!await ClickControlAsync(page,"wave-default"))throw new InvalidOperationException("Кнопка Моей волны перекрыта. Закройте диалог и повторите.");
+            for(var i=0;i<16;i++)
+            {
+                await Task.Delay(250);
+                var status=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_status",service="yandex"});
+                if(status.GetProperty("playing").GetBoolean())return;
+                var state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                if(target.GetProperty("found").GetBoolean()&&!status.GetProperty("active").GetBoolean()&&state.GetProperty("playing").GetBoolean()&&
+                    new[]{"title","artist","track_url"}.Any(field=>state.GetProperty(field).GetRawText()!=before.GetProperty(field).GetRawText()))return;
+            }
+        }
+        throw new InvalidOperationException("Моя волна пока не запустилась. Проверьте подключение и повторите — выбранный жанр сохранён.");
     }
     private async Task SearchYouTubeAsync(IPage page,string query)
     {
