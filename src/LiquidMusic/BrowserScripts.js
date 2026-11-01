@@ -96,6 +96,7 @@
     }catch{return null;}
   };
   if(service==='spotify'&&action==='spotify_account'){
+    if(window.__liquidSpotifyAccount?.account)return {account:window.__liquidSpotifyAccount.account,can_open:!!spotifyAvatar};
     const links=[...document.querySelectorAll('[role="menu"] a[href*="/user/"],[data-testid="user-widget-dropdown"] a[href*="/user/"]')];
     const profile=links.find(link=>link.getClientRects().length&&getComputedStyle(link).visibility!=='hidden');
     if(profile){const url=new URL(profile.href,location.href);const match=/^\/(?:intl-[a-zA-Z-]+\/)?user\/([^/]+)\/?$/.exec(url.pathname);
@@ -168,7 +169,9 @@
     for(const el of candidates){
       if(el.closest('nav,aside,'+playerSelector)||el.hidden||getComputedStyle(el).display==='none'||getComputedStyle(el).visibility==='hidden')continue;
       // Use the outer clickable card when its children repeat the same title.
-      if([...candidates].some(parent=>parent!==el&&parent.contains(el)&&card(parent)))continue;
+      let nested=false;
+      for(let parent=el.parentElement;parent;parent=parent.parentElement){if(candidates.has(parent)&&card(parent)){nested=true;break;}}
+      if(nested)continue;
       const wheelTitle=el.querySelector('[class*="WheelItem_title"]')?.textContent;
       const description=el.querySelector('[class*="WheelItem_description"]')?.textContent;
       const title=(wheelTitle?[description,wheelTitle].filter(Boolean).join(' '):el.innerText?.trim()||el.getAttribute('aria-label')||el.querySelector('img')?.alt||'').replace(/\s+/g,' ').trim();

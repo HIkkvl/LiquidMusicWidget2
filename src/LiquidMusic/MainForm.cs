@@ -30,7 +30,9 @@ internal sealed class MainForm : Form
     private WheelControl? wheel;
     private JsonObject snapshot=new(){["connected"]=false,["title"]="В ожидании музыки",["artist"]="Войдите в музыкальный аккаунт"};
     private string hotkeyError="";
-    private bool quitting,polling;
+    private bool quitting,polling,wheelBusy;
+    private Task? serviceSwitch;
+    private readonly HashSet<string> servicesToPause=new();
     private double? wheelTarget;
     private readonly bool startHidden;
     private readonly bool uiTest;
@@ -56,7 +58,7 @@ internal sealed class MainForm : Form
         Controls.Add(view);
         var icon=Path.Combine(AppContext.BaseDirectory,"ui","assets","app.ico");
         Icon=File.Exists(icon)?new Icon(icon):SystemIcons.Application;
-        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query,command.Volume);snapshot=result;Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null,async(text,token)=>
+        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query,command.Volume);if(UpdatePlayback(service,result))Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null,async(text,token)=>
         {
             JsonObject context=new();
             await OnUiAsync(()=>{context=(JsonObject)snapshot.DeepClone();context["service"]=settings.Service;return Task.CompletedTask;});
@@ -70,7 +72,12 @@ internal sealed class MainForm : Form
         Shown+=(_,_)=>{if(startHidden)Hide();};
         FormClosing+=(_,e)=>{if(!quitting){e.Cancel=true;Hide();}};
         poll.Tick+=async(_,_)=>await PollAsync();
-        wheelTimer.Tick+=async(_,_)=>{var value=wheelTarget;wheelTarget=null;if(value!=null)await RunActionAsync("volume",value.Value);};
+        wheelTimer.Tick+=async(_,_)=>
+        {
+            if(wheelBusy||wheelTarget==null)return;
+            var value=wheelTarget.Value;wheelTarget=null;wheelBusy=true;
+            try{await RunActionAsync("volume",value);}finally{wheelBusy=false;}
+        };
         islandTimer.Tick+=(_,_)=>UpdateIsland();
         island.Command+=async action=>await RunActionAsync(action);
         settings.Value["fx"]=NormalizeFx(settings.Value["fx"]);
@@ -218,7 +225,7 @@ internal sealed class MainForm : Form
             case "get_waves":
                 var waves=await browser.CommandAsync("yandex","wave_list");
                 waves["ok"]=true;return waves;
-            case "get_spotify_playlists":return await browser.SpotifyLibraryAsync();
+            case "get_spotify_playlists":return await browser.SpotifyLibraryAsync(refresh:Arg(0)?.GetValue<bool>()??true);
             case "add_spotify_playlist":return await browser.SpotifyLibraryAsync(Arg(0)!.GetValue<string>());
             case "set_assistant_provider":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
@@ -269,12 +276,16 @@ internal sealed class MainForm : Form
                 return new{ok=true,browser=browser.Status()};
             case "set_service":
                 var service=Arg(0)!.GetValue<string>();if(!MusicServices.Supported(service))throw new ArgumentException("Неизвестный сервис");
-                if(service!=settings.Service&&snapshot["playing"]?.GetValue<bool>()==true)
-                {
-                    try{await browser.CommandAsync(settings.Service,"pause");}
-                    catch(Exception error){AppPaths.Log("Pause previous music service: "+error.GetType().Name);}
-                }
-                settings.Value["service"]=service;settings.Save();snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
+                if(service==settings.Service)break;
+                if(snapshot["playing"]?.GetValue<bool>()==true)servicesToPause.Add(settings.Service);
+                wheelTarget=null;
+                settings.Value["service"]=service;settings.Save();
+                browser.CancelLibraryRefresh();
+                snapshot=new(){["connected"]=false,["service"]=service,["title"]="Подключение…"};discord.Update(snapshot);
+                // Reply to the widget before startup/network work. Coalesce
+                // rapid clicks; an old service must never overwrite the latest.
+                if(serviceSwitch?.IsCompleted!=false)serviceSwitch=SwitchServiceAsync();
+                break;
             case "set_yandex_domain":
                 browser.SetYandexDomain(Arg(0)!.GetValue<string>());
                 snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
@@ -409,6 +420,25 @@ internal sealed class MainForm : Form
             : "Сервер переноса не запущен. "+status["error"]?.GetValue<string>();
         MessageBox.Show(this,message,"Liquid Music — музыка на телефон",MessageBoxButtons.OK,MessageBoxIcon.Information);
     }
+    private async Task SwitchServiceAsync()
+    {
+        await Task.Yield();
+        while(!quitting)
+        {
+            var service=settings.Service;
+            foreach(var previous in servicesToPause.ToArray())
+            {
+                servicesToPause.Remove(previous);
+                try{await browser.CommandAsync(previous,"pause");}
+                catch(Exception error){AppPaths.Log("Pause previous music service: "+error.GetType().Name);}
+            }
+            if(service!=settings.Service)continue;
+            try{await browser.SuspendInactiveAsync(service);}catch(Exception error){AppPaths.Log("Idle music engine: "+error.GetType().Name);}
+            if(service!=settings.Service)continue;
+            await PollAsync();
+            if(service==settings.Service&&servicesToPause.Count==0)return;
+        }
+    }
     private async Task PollAsync()
     {
         if(polling||quitting||uiTest)return;polling=true;
@@ -416,16 +446,31 @@ internal sealed class MainForm : Form
         {
             var service=settings.Service;
             var next=await browser.SnapshotAsync(service);
-            if(service==settings.Service&&next["busy"]==null){snapshot=next;discord.Update(snapshot);}
+            if(next["busy"]==null)UpdatePlayback(service,next);
         }
         catch(Exception error){AppPaths.Log(error);}
         finally{polling=false;}
     }
     private async Task RunCommandAsync(string action,JsonNode? value)
     {
-        var result=await browser.CommandAsync(settings.Service,action,action is "genre" or "search_play" or "wave" or "spotify_playlist"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
-        snapshot=result;
+        var service=settings.Service;
+        var result=await browser.CommandAsync(service,action,action is "genre" or "search_play" or "wave" or "spotify_playlist"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
+        if(!UpdatePlayback(service,result))return;
         if(action is not("volume" or "genre" or "open"))Notify(action,result);
+    }
+    private bool UpdatePlayback(string service,JsonObject result)
+    {
+        if(service!=settings.Service)
+        {
+            if(result["playing"]?.GetValue<bool>()==true)
+            {
+                servicesToPause.Add(service);
+                if(serviceSwitch?.IsCompleted!=false)serviceSwitch=SwitchServiceAsync();
+            }
+            return false;
+        }
+        snapshot=result;discord.Update(snapshot);
+        return true;
     }
     private async Task RunActionAsync(string action,double? volume=null)
     {

@@ -12,6 +12,7 @@ static class Program
         Application.ThreadException += (_, e) => AppPaths.Log(e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => AppPaths.Log(e.ExceptionObject);
         if (args.Contains("--self-test")) { Environment.ExitCode = SelfTests.Run(); return; }
+        if (args.Contains("--performance-test")) { Environment.ExitCode = ResponsivenessTests.Run(); return; }
         if (args.Contains("--embedded-test")||args.Contains("--embedded-site-test")) { Environment.ExitCode = EmbeddedMusicTests.Run(args.Contains("--embedded-site-test")); return; }
         if (args.Contains("--services-test")) { Environment.ExitCode = EmbeddedMusicTests.Run(services:true); return; }
         if (args.Contains("--assistant-test")) { Environment.ExitCode = DeepSeekTests.RunAsync().GetAwaiter().GetResult(); return; }

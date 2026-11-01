@@ -353,7 +353,11 @@ void main(){
       cfg = options; canvas = options.canvas;
       if (options.palette) palette = options.palette;
       if (options.solid != null) solid = !!options.solid;
-      observer = new MutationObserver(() => { dirtyList = true; boost(); });
+      // Track/time/status text changes do not change the set of glass surfaces.
+      // Recollecting every surface on every poll needlessly forced layout work.
+      observer = new MutationObserver(records => {
+        if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===Node.ELEMENT_NODE))){dirtyList=true;boost();}
+      });
       observer.observe(cfg.root, {childList: true, subtree: true});
       document.addEventListener('visibilitychange', () => { if (!document.hidden) boost(); });
       window.addEventListener('resize', boost);

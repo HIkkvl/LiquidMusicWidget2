@@ -188,10 +188,11 @@ internal sealed partial class BrowserController : IAsyncDisposable
         // Яндекс Музыка играет через `new Audio()`, которого нет в DOM: тогда время и ссылка на поток недоступны.
         // Находим такие элементы через CDP и регистрируем их для скрипта страницы.
         if(service!="youtube"&&snapshot["playing"]?.GetValue<bool>()==true&&
+           (snapshot["duration"]?.GetValue<double>()??0)<=0&&
            (snapshot["media_found"]?.GetValue<bool>()!=true||snapshot["media_stale"]?.GetValue<bool>()==true)&&
-           DateTime.UtcNow-lastMediaRegister>TimeSpan.FromSeconds(3))
+           (!mediaProbes.TryGetValue(page,out var lastProbe)||DateTime.UtcNow-lastProbe>TimeSpan.FromSeconds(30)))
         {
-            lastMediaRegister=DateTime.UtcNow;
+            mediaProbes[page]=DateTime.UtcNow;
             try{await RegisterMediaAsync(page);snapshot=await EvaluateSnapshotAsync(page,service);}
             catch(Exception e){AppPaths.Log("Media registry: "+e.Message);}
         }
@@ -204,7 +205,7 @@ internal sealed partial class BrowserController : IAsyncDisposable
             {
                 var detail=await page.EvaluateAsync<JsonElement>(script,new{action="diagnose_time",service});
                 Directory.CreateDirectory(AppPaths.Logs);
-                File.WriteAllText(Path.Combine(AppPaths.Logs,"time-diagnostic.json"),detail.GetRawText());
+                await File.WriteAllTextAsync(Path.Combine(AppPaths.Logs,"time-diagnostic.json"),detail.GetRawText());
             }
             catch(Exception e){AppPaths.Log("Time diagnostic: "+e.Message);}
         }
@@ -216,7 +217,8 @@ internal sealed partial class BrowserController : IAsyncDisposable
         }
         return snapshot;
     }
-    private DateTime lastMediaRegister=DateTime.MinValue,lastTimeDiagnostic=DateTime.MinValue;
+    private readonly Dictionary<IPage,DateTime> mediaProbes=new();
+    private DateTime lastTimeDiagnostic=DateTime.MinValue;
     private async Task<JsonObject> EvaluateSnapshotAsync(IPage page,string service)
     {
         var result=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service});
@@ -227,10 +229,10 @@ internal sealed partial class BrowserController : IAsyncDisposable
         var session=await page.Context.NewCDPSessionAsync(page);
         try
         {
-            var prototype=await session.SendAsync("Runtime.evaluate",new Dictionary<string,object>{["expression"]="HTMLMediaElement.prototype"});
+            var prototype=await session.SendAsync("Runtime.evaluate",new Dictionary<string,object>{["expression"]="HTMLMediaElement.prototype",["objectGroup"]="liquid-media-probe"});
             var prototypeId=prototype?.GetProperty("result").GetProperty("objectId").GetString();
             if(prototypeId==null)return;
-            var found=await session.SendAsync("Runtime.queryObjects",new Dictionary<string,object>{["prototypeObjectId"]=prototypeId});
+            var found=await session.SendAsync("Runtime.queryObjects",new Dictionary<string,object>{["prototypeObjectId"]=prototypeId,["objectGroup"]="liquid-media-probe"});
             var arrayId=found?.GetProperty("objects").GetProperty("objectId").GetString();
             if(arrayId==null)return;
             // queryObjects возвращает и сами прототипы (HTMLAudioElement.prototype): их поля бросают Illegal invocation
@@ -240,13 +242,24 @@ internal sealed partial class BrowserController : IAsyncDisposable
                 ["functionDeclaration"]="function(){window.__lmMedia=Array.from(this).filter(e=>{try{return e instanceof HTMLMediaElement&&typeof e.paused==='boolean'}catch(_){return false}});return window.__lmMedia.length}"
             });
         }
-        finally{try{await session.DetachAsync();}catch{}}
+        finally
+        {
+            try{await session.SendAsync("Runtime.releaseObjectGroup",new Dictionary<string,object>{{"objectGroup","liquid-media-probe"}});}catch{}
+            try{await session.DetachAsync();}catch{}
+        }
     }
     public async Task<JsonObject> SnapshotAsync(string service)
     {
         if(!await gate.WaitAsync(0))return new(){["busy"]=true};
         try{return await ReadAsync(await PageAsync(service,false),service);}
         catch(Exception e){return new(){["connected"]=false,["service"]=service,["error"]=e.Message};}
+        finally{gate.Release();}
+    }
+    internal async Task SuspendInactiveAsync(string service)
+    {
+        if(embedded==null)return;
+        await gate.WaitAsync();
+        try{await embedded.SuspendInactiveAsync(service);}
         finally{gate.Release();}
     }
     public async Task<object> DiagnoseAsync(string service)
@@ -589,6 +602,7 @@ internal sealed partial class BrowserController : IAsyncDisposable
     }
     public async ValueTask DisposeAsync()
     {
+        libraryRefresh.Cancel();
         // Dispose the transport, then our own WebViews. Do not Browser.close a
         // user-owned browser used by the legacy diagnostic tools.
         playwright?.Dispose();

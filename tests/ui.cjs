@@ -272,6 +272,32 @@ const {pathToFileURL} = require('node:url');
    assert.equal(serviceMetrics.scroll,serviceMetrics.width);assert.ok(serviceMetrics.bottom<=serviceMetrics.height,JSON.stringify(serviceMetrics));
    await page.screenshot({path:'tests/'+service+'-preview.png'});
  }
+ // A slow player must not freeze navigation or let a late reply restore an
+ // older service. These promises deliberately resolve in reverse order.
+ const responsiveness=await page.evaluate(async()=>{
+   const pending={};const original=window.liquid.api.set_service;
+   window.liquid.api.set_service=name=>new Promise(resolve=>{pending[name]=()=>{window.service=name;resolve({ok:true});};});
+   const started=performance.now();
+   document.querySelector('[data-service=spotify]').click();
+   const first=document.body.dataset.service;
+   document.querySelector('[data-service=youtube]').click();
+   const latest=document.body.dataset.service;
+   document.getElementById('settings-button').click();
+   const settingsResponsive=document.getElementById('settings-dialog').open;
+   document.getElementById('settings-dialog').close();
+   const responseMs=performance.now()-started;
+   pending.youtube();await new Promise(resolve=>setTimeout(resolve,30));
+   pending.spotify();await new Promise(resolve=>setTimeout(resolve,30));
+   // Simulate a snapshot already in flight from the old service.
+   await poll();
+   const afterLateReply=document.body.dataset.service;
+   window.liquid.api.set_service=original;window.service='youtube';
+   return {first,latest,settingsResponsive,responseMs,afterLateReply};
+ });
+ assert.equal(responsiveness.first,'spotify');assert.equal(responsiveness.latest,'youtube');
+ assert.equal(responsiveness.settingsResponsive,true);assert.equal(responsiveness.afterLateReply,'youtube');
+ assert.ok(responsiveness.responseMs<200,JSON.stringify(responsiveness));
+ console.log('Service switch/input response with delayed players:',JSON.stringify(responsiveness));
  assert.deepEqual(errors,[]);
  await browser.close();
  console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, 7 settings tabs, embedded sign-in status, keyboard navigation, drafts across tabs, settings save, narrow/short viewport, no JS errors');

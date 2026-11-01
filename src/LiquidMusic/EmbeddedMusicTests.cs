@@ -110,6 +110,11 @@ internal static class EmbeddedMusicTests
         Check(await page.EvaluateAsync<bool>("()=>Math.abs(document.getElementById('audio').volume-.35)<.01"),"Widget volume controls internal audio");
         await controller.CommandAsync("yandex","pause");
         Check(await page.EvaluateAsync<bool>("()=>document.getElementById('audio').paused"),"Pause reaches internal audio");
+        await controller.SuspendInactiveAsync("spotify");
+        Check(host.Windows.Single().View.CoreWebView2.IsSuspended,"Inactive paused engine suspends its page");
+        await host.EnsureServiceAsync("yandex","https://music.yandex.kz/");
+        Check(!host.Windows.Single().View.CoreWebView2.IsSuspended,"Returning to a service resumes the same page");
+        Check(await page.EvaluateAsync<bool>("()=>document.getElementById('audio').paused"),"Resume preserves playback state without reloading");
         Check(Native.GetForegroundWindow()==foreground,"Background playback never steals Windows foreground");
         checks.Add("Hidden audio playback, trusted play/pause, volume and Windows focus preservation");
         var waveFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave-wheel.html"));

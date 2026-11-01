@@ -18,7 +18,8 @@ let lastArtwork = null;
 let api = null;
 let volumeDragging = false;
 const shortcutLabel = b => [...['ctrl','alt','shift'].filter(k=>b[k]).map(k=>k[0].toUpperCase()+k.slice(1)),b.key || 'Не назначена'].join(' + ');
-const icon = (element,name) => element.querySelector('use').setAttribute('href','#i-'+name);
+const icon = (element,name) => {const use=element.querySelector('use'),href='#i-'+name;if(use.getAttribute('href')!==href)use.setAttribute('href',href);};
+const setText=(element,value)=>{if(element.textContent!==value)element.textContent=value;};
 
 function toast(message) {
   $('toast').textContent = message;
@@ -101,12 +102,12 @@ function renderSpotifyPlaylists(playlists=[],message='Войдите в Spotify,
   }
   list.scrollTop=0;
 }
-async function refreshSpotifyPlaylists() {
+async function refreshSpotifyPlaylists(refresh=true) {
   if(spotifyLoading)return;spotifyLoading=true;spotifyAttempted=true;
   $('refresh-spotify-playlists').disabled=true;
   const generation=spotifyGeneration;renderSpotifyPlaylists([],'Загружаю миксы и плейлисты…');
   try{
-    const result=await invoke('get_spotify_playlists');
+    const result=await invoke('get_spotify_playlists',refresh!==false);
     if(generation!==spotifyGeneration||configuration?.service!=='spotify')return;
     if(result.ok){spotifyAccount=result.account;renderSpotifyPlaylists(result.playlists||[],'В аккаунте пока нет плейлистов. Добавьте первый по ссылке.');}
     else renderSpotifyPlaylists([],result.error||'Не удалось загрузить плейлисты.');
@@ -318,18 +319,17 @@ async function setQuality(level){
   if(!result.ok)toast(result.error);
   else toast(level==='high'?'Качество: высокое (максимум эффектов)':level==='medium'?'Качество: среднее (баланс)':'Качество: низкое (минимум нагрузки)');
 }
-let switchingService=false;
+let serviceRevision=0,servicePending=0;
 async function switchService(name){
-  if(switchingService||!serviceNames[name]||configuration.service===name)return;
-  switchingService=true;
-  const result=await invoke('set_service',name);
-  switchingService=false;
-  if(!result.ok){toast(result.error);return;}
-  document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===name));
-  document.body.dataset.service=name;
-  applyTheme(name);
+  if(!serviceNames[name]||configuration.service===name)return;
+  const revision=++serviceRevision,previous=configuration.service;
+  servicePending=revision;
   configuration.service=name;
   renderState({connected:false,service:name});
+  const result=await invoke('set_service',name);
+  if(revision!==serviceRevision)return;
+  servicePending=0;
+  if(!result.ok){configuration.service=previous;renderState({connected:false,service:previous});toast(result.error);return;}
   await poll();
   toast(serviceNames[name]+' · '+(name==='spotify'?'фоновый плеер':'встроенный плеер'));
 }
@@ -344,8 +344,9 @@ async function saveShortcuts() {
 }
 const formatTime=value=>{value=Math.max(0,Math.floor(Number(value)||0));return Math.floor(value/60)+':'+String(value%60).padStart(2,'0');};
 function renderState(snapshot) {
+  if(snapshot.service&&configuration?.service&&snapshot.service!==configuration.service)return;
   currentState=snapshot;
-  if(snapshot.browser&&configuration){configuration.browser=snapshot.browser;renderBrowserConnection(snapshot.browser);}
+  if(snapshot.browser&&configuration){configuration.browser=snapshot.browser;const key=configuration.service+'|'+JSON.stringify(snapshot.browser);if(key!==renderState.browserKey){renderState.browserKey=key;renderBrowserConnection(snapshot.browser);}}
   renderVoice(snapshot.voice);
   const connected=!!snapshot.connected;
   const waveService=configuration?.service||snapshot.service||'yandex';
@@ -354,16 +355,17 @@ function renderState(snapshot) {
   if(waveService==='spotify'){
     const identity=String(connected)+'|'+(snapshot.spotify_document||'')+'|'+(snapshot.spotify_account_hint||'');
     if(identity!==spotifyIdentity||snapshot.spotify_account&&spotifyAccount&&snapshot.spotify_account!==spotifyAccount){spotifyIdentity=identity;spotifyAccount=snapshot.spotify_account||null;spotifyAttempted=false;spotifyGeneration++;renderSpotifyPlaylists();$('spotify-playlist-dialog').close();$('spotify-playlist-url').value='';}
-    if(connected&&!spotifyAttempted&&!spotifyLoading)void refreshSpotifyPlaylists();
+    if(connected&&!spotifyAttempted&&!spotifyLoading)void refreshSpotifyPlaylists(false);
     if(!connected){spotifyAttempted=false;spotifyAccount=null;renderSpotifyPlaylists();}
     $('add-spotify-playlist').disabled=!connected;
     document.querySelectorAll('.spotify-playlist').forEach(row=>row.classList.toggle('selected',row.dataset.playlist===snapshot.active_spotify_playlist));
   }else if(spotifyIdentity!==null){spotifyIdentity=null;spotifyAccount=null;spotifyAttempted=false;spotifyGeneration++;renderSpotifyPlaylists();$('spotify-playlist-dialog').close();}
   $('service-search').hidden=waveService==='yandex';
-  $('service-search-title').textContent='Поиск · '+serviceNames[waveService];
+  setText($('service-search-title'),'Поиск · '+serviceNames[waveService]);
   $('service-note').textContent=waveService==='spotify'?'Spotify работает в отдельном фоновом Edge. Доступность треков и воспроизведения зависит от аккаунта и региона.':waveService==='soundcloud'?'Для лайков войдите в SoundCloud. Некоторые треки требуют подписку или недоступны в вашем регионе.':'Воспроизведение зависит от доступности трека и аккаунта.';
-  document.querySelector('.brand strong').textContent=serviceNames[waveService];
-  document.querySelector('.brand-mark').src='assets/services/'+waveService+'.png';
+  setText(document.querySelector('.brand strong'),serviceNames[waveService]);
+  const logo='assets/services/'+waveService+'.png';
+  if(document.querySelector('.brand-mark').getAttribute('src')!==logo)document.querySelector('.brand-mark').src=logo;
   if(waveService==='yandex'){
     if(waveOrigin&&snapshot.wave_origin&&waveOrigin!==snapshot.wave_origin){wavesAttempted=false;renderWaves();}
     if(snapshot.wave_origin)waveOrigin=snapshot.wave_origin;
@@ -372,13 +374,13 @@ function renderState(snapshot) {
     if(!connected){wavesAttempted=false;waveOrigin=null;renderWaves();}
   }
   const hasTrack=connected && snapshot.title && snapshot.title!=='Ожидаю воспроизведение';
-  $('track-title').textContent=hasTrack?snapshot.title:'В ожидании музыки';
+  setText($('track-title'),hasTrack?snapshot.title:'В ожидании музыки');
   $('track-title').title=hasTrack?snapshot.title:'';
-  $('track-artist').textContent=hasTrack?snapshot.artist:'Включите любимый трек';
+  setText($('track-artist'),hasTrack?snapshot.artist:'Включите любимый трек');
   $('track-artist').title=hasTrack?snapshot.artist:'';
   const activeWave=connected&&waveService==='yandex'?snapshot.active_wave:null;
   const context=$('track-context');
-  context.textContent=activeWave?activeWave+' ×':snapshot.playing&&connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА';
+  setText(context,activeWave?activeWave+' ×':snapshot.playing&&connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА');
   context.classList.toggle('wave-active',!!activeWave);context.disabled=!activeWave||waveSelecting;
   context.title=activeWave?'Отключить «'+activeWave+'» и включить Мою волну':'';
   context.setAttribute('aria-label',activeWave?context.title:context.textContent);
@@ -396,7 +398,7 @@ function renderState(snapshot) {
   const duration=connected?Number(snapshot.duration)||0:0;
   const position=connected?Number(snapshot.position)||0:0;
   const progress=duration>0?Math.min(100,Math.max(0,position/duration*100)):0;
-  $('position').textContent=formatTime(position);$('duration').textContent=formatTime(duration);
+  setText($('position'),formatTime(position));setText($('duration'),formatTime(duration));
   $('progress-fill').style.width=progress+'%';
   document.querySelector('.progress-track').setAttribute('aria-valuenow',String(Math.round(progress)));
   $('connection-dot').classList.toggle('online',connected);
@@ -414,8 +416,8 @@ function renderState(snapshot) {
   $('volume').disabled=!supported;
   if(!volumeDragging && supported){
     const volume=Math.round(Math.max(0,Math.min(1,snapshot.volume))*100);
-    $('volume').value=volume;$('volume').style.setProperty('--volume',volume+'%');$('volume-value').textContent=volume+'%';
-  }else if(!supported){$('volume-value').textContent='—';}
+    $('volume').value=volume;$('volume').style.setProperty('--volume',volume+'%');setText($('volume-value'),volume+'%');
+  }else if(!supported){setText($('volume-value'),'—');}
 }
 function renderVoice(voice) {
   if(!voice)return;
@@ -427,8 +429,8 @@ function renderVoice(voice) {
   button.setAttribute('aria-pressed',String(cancellable));
   button.setAttribute('aria-label',cancellable?'Отменить голосовую команду':'Начать голосовую команду');
   button.disabled=busy && !cancellable;
-  $('voice-status').textContent=voice.message;
-  $('voice-transcript').textContent=voice.text?'Вы сказали: «'+voice.text+'»':'';
+  setText($('voice-status'),voice.message||'');
+  setText($('voice-transcript'),voice.text?'Вы сказали: «'+voice.text+'»':'');
   $('voice-transcript').hidden=!voice.text;
 }
 $('voice-button').addEventListener('click',async()=>{
@@ -441,7 +443,7 @@ $('voice-button').addEventListener('click',async()=>{
   await poll();
 });
 async function poll() {
-  if(!api || busyPoll)return;
+  if(!api || busyPoll || servicePending)return;
   busyPoll=true;
   try{const snapshot=await api.get_state();renderState(snapshot);}catch(_){$('connection-title').textContent='Связь с виджетом потеряна';}
   finally{busyPoll=false;}

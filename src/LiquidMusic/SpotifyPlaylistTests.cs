@@ -64,6 +64,21 @@ internal static class SpotifyPlaylistTests
         var playing=await controller.CommandAsync("spotify","spotify_playlist","https://open.spotify.com/playlist/"+PrivateId);
         Check(playing["playing"]!.GetValue<bool>()&&playing["active_spotify_playlist"]?.GetValue<string>()==PrivateId,"Playlist click starts audio through native input and marks selection");
         Check(SpotifyPlaylists.Saved(settings,"account-a").OfType<JsonObject>().Any(entry=>entry["url"]!.GetValue<string>().EndsWith(PrivateId)&&entry["title"]!.GetValue<string>()=="Account playlist"),"Authenticated playback fills private playlist title");
+        var playlistPage=page.Url;
+        // Playlist navigation creates a new document; verify its account once
+        // before measuring repeat reads of the already identified account.
+        await controller.SpotifyLibraryAsync(refresh:false);
+        var cachedClock=System.Diagnostics.Stopwatch.StartNew();
+        var cached=await controller.SpotifyLibraryAsync(refresh:false);
+        Check(cached["playlists"]!.AsArray().Count==3&&page.Url==playlistPage,"Returning to Spotify reuses account library without navigating away from playback");
+        Check(cachedClock.Elapsed<TimeSpan.FromSeconds(1),"Cached Spotify library must not repeat multi-second discovery: "+cachedClock.Elapsed.TotalMilliseconds+" ms");
+        var refresh=controller.SpotifyLibraryAsync();
+        await Task.Delay(500);
+        controller.CancelLibraryRefresh();
+        var canceled=false;
+        try{await refresh.WaitAsync(TimeSpan.FromSeconds(2));}catch(OperationCanceledException){canceled=true;}
+        Check(canceled,"Leaving Spotify cancels background library discovery");
+        Check((await controller.SnapshotAsync("spotify"))["busy"]==null,"Canceled discovery releases the player for the next command");
         await page.EvaluateAsync("()=>{window.accountId='account-b';document.querySelector('[data-testid=\"user-widget-link\"]').textContent='Another account';document.getElementById('library-scroll').replaceChildren();}");
         var another=await controller.SpotifyLibraryAsync();
         Check(another["account"]?.GetValue<string>()=="account-b"&&another["playlists"]!.AsArray().Count==0,"Switching account hides previous user's imported playlists");

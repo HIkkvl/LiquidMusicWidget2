@@ -7,10 +7,16 @@ namespace LiquidMusic;
 internal sealed partial class BrowserController
 {
     private readonly Dictionary<string,JsonArray> spotifyCatalog=new();
-    public async Task<JsonObject> SpotifyLibraryAsync(string? addUrl=null)
+    private CancellationTokenSource libraryRefresh=new();
+    internal void CancelLibraryRefresh()
+    {
+        libraryRefresh.Cancel();libraryRefresh.Dispose();libraryRefresh=new();
+    }
+    public async Task<JsonObject> SpotifyLibraryAsync(string? addUrl=null,bool refresh=true)
     {
         var normalized=addUrl==null?null:SpotifyPlaylists.NormalizeUrl(addUrl);
-        await gate.WaitAsync();ICDPSession? focus=null;
+        var cancellation=libraryRefresh.Token;
+        await gate.WaitAsync(cancellation);ICDPSession? focus=null;
         try
         {
             if(settings.Service!="spotify")throw new InvalidOperationException("Сначала выберите Spotify.");
@@ -18,7 +24,8 @@ internal sealed partial class BrowserController
             if((await ReadAsync(page,"spotify"))["signed_in"]?.GetValue<bool>()!=true)throw new InvalidOperationException("Войдите в Spotify: Настройки → Аккаунт.");
             focus=await page.Context.NewCDPSessionAsync(page);
             await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",true}});
-            var account=await SpotifyAccountAsync(page,script);
+            var account=await SpotifyAccountAsync(page,script,cancellation);
+            cancellation.ThrowIfCancellationRequested();
             async Task<JsonArray> Read()=>JsonNode.Parse((await page.EvaluateAsync<JsonElement>(script,new{action="spotify_library",service="spotify"})).GetRawText())!.AsArray();
             var discovered=await Read();
             var added=false;
@@ -46,7 +53,7 @@ internal sealed partial class BrowserController
                 }
                 added=SpotifyPlaylists.Save(settings,account,entry);
             }
-            else
+            else if(refresh||!spotifyCatalog.ContainsKey(account))
             {
                 // Follow the real Home button: SPA navigation keeps audio alive.
                 if(new Uri(page.Url).AbsolutePath.Trim('/') is not ("" or "intl-ru"))
@@ -57,7 +64,7 @@ internal sealed partial class BrowserController
                 var stable=0;var lastCount=discovered.Count;
                 for(var i=0;i<30;i++)
                 {
-                    await Task.Delay(200);
+                    await Task.Delay(200,cancellation);
                     discovered=SpotifyPlaylists.Merge(discovered,await Read());
                     stable=discovered.Count==lastCount?stable+1:0;lastCount=discovered.Count;
                     if(discovered.Count>0&&i>=8&&stable>=3)break;
@@ -68,7 +75,7 @@ internal sealed partial class BrowserController
                     {
                         var moved=await page.EvaluateAsync<bool>(script,new{action="spotify_library_scroll",service="spotify"});
                         if(!moved)break;
-                        await Task.Delay(180);discovered=SpotifyPlaylists.Merge(discovered,await Read());
+                        await Task.Delay(180,cancellation);discovered=SpotifyPlaylists.Merge(discovered,await Read());
                     }
                 }
                 finally{await page.EvaluateAsync<JsonElement>(script,new{action="spotify_library_restore",service="spotify"});}
@@ -83,17 +90,18 @@ internal sealed partial class BrowserController
             gate.Release();
         }
     }
-    internal static async Task<string> SpotifyAccountAsync(IPage page,string script)
+    internal static async Task<string> SpotifyAccountAsync(IPage page,string script,CancellationToken cancellation=default)
     {
         var opened=false;
         try
         {
             for(var i=0;i<15;i++)
             {
+                cancellation.ThrowIfCancellationRequested();
                 var info=await page.EvaluateAsync<JsonElement>(script,new{action="spotify_account",service="spotify"});
                 if(info.TryGetProperty("account",out var account)&&account.ValueKind==JsonValueKind.String)return account.GetString()!;
                 if(!opened&&info.GetProperty("can_open").GetBoolean()){opened=await ClickControlAsync(page,"spotify-account");}
-                await Task.Delay(150);
+                await Task.Delay(150,cancellation);
             }
         }
         finally{if(opened)await page.Keyboard.PressAsync("Escape");}

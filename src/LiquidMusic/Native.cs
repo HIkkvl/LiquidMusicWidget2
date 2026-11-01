@@ -80,29 +80,87 @@ internal sealed class GlobalHotkeys(nint window) : IDisposable
 internal sealed class WheelControl : IDisposable
 {
     private readonly Native.Hook callback;
-    private readonly nint handle;
-    public JsonNode? Options {get;set;}
+    private sealed record WheelOptions(bool Enabled,int Modifier,double Step);
+    private WheelOptions options=new(false,0x11,.05);
+    private readonly SynchronizationContext dispatcher;
+    private readonly object pendingLock=new();
+    private double pendingDelta;
+    private bool posted;
+    private volatile bool disposed;
+    private Control? pump;
+    private nint handle;
+    private readonly TaskCompletionSource ready=new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Task Ready=>ready.Task;
+    public JsonNode? Options
+    {
+        set=>Volatile.Write(ref options,new(value?["enabled"]?.GetValue<bool>()==true,
+            value?["modifier"]?.GetValue<string>() switch {"alt"=>0x12,"shift"=>0x10,"none"=>0,_=>0x11},
+            (value?["step"]?.GetValue<double>()??5)/100));
+    }
     public event Action<double>? Changed;
     public WheelControl()
     {
+        dispatcher=SynchronizationContext.Current??throw new InvalidOperationException("Wheel control requires a UI dispatcher.");
         callback=OnMouse;
-        handle=Native.SetWindowsHookEx(14,callback,0,0);
+        // Windows waits for this callback on EVERY mouse move. Never install
+        // the low-level hook on the WebView/UI thread: a slow render or service
+        // startup would otherwise delay input across the whole desktop.
+        var thread=new Thread(()=>
+        {
+            using var control=new Control();
+            _=control.Handle;Volatile.Write(ref pump,control);
+            try
+            {
+                if(disposed)return;
+                handle=Native.SetWindowsHookEx(14,callback,0,0);
+                if(handle==0)ready.TrySetException(new InvalidOperationException("Не удалось подключить управление колёсиком."));
+                else ready.TrySetResult();
+                if(!disposed)Application.Run();
+            }
+            finally
+            {
+                if(handle!=0)Native.UnhookWindowsHookEx(handle);
+                handle=0;Volatile.Write(ref pump,null);
+            }
+        }){IsBackground=true,Name="Liquid Music mouse hook"};
+        thread.SetApartmentState(ApartmentState.STA);thread.Start();
     }
     private nint OnMouse(int code,nint w,nint l)
     {
-        if(code==0 && w==0x020A && Options?["enabled"]?.GetValue<bool>()==true)
+        var current=Volatile.Read(ref options);
+        if(!disposed&&code==0 && w==0x020A && current.Enabled)
         {
-            var mod=Options["modifier"]?.GetValue<string>() ?? "ctrl";
-            var vk=mod switch {"ctrl"=>0x11,"alt"=>0x12,"shift"=>0x10,_=>0};
+            var vk=current.Modifier;
             if(vk==0 || (Native.GetAsyncKeyState(vk)&0x8000)!=0)
             {
                 var mouse=Marshal.PtrToStructure<Native.Mouse>(l);
-                var delta=(short)(mouse.Data>>16)/120.0 * (Options["step"]?.GetValue<double>()??5)/100;
-                Changed?.Invoke(delta);
+                var delta=(short)(mouse.Data>>16)/120.0 * current.Step;
+                lock(pendingLock)
+                {
+                    pendingDelta+=delta;
+                    if(!posted){posted=true;dispatcher.Post(_=>Deliver(),null);}
+                }
                 return 1;
             }
         }
         return Native.CallNextHookEx(handle,code,w,l);
     }
-    public void Dispose(){if(handle!=0)Native.UnhookWindowsHookEx(handle);}
+    private void Deliver()
+    {
+        double delta;lock(pendingLock){delta=pendingDelta;pendingDelta=0;posted=false;}
+        if(!disposed)Changed?.Invoke(delta);
+    }
+    internal Task ProbeAsync()
+    {
+        var done=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var control=Volatile.Read(ref pump);
+        if(control==null)done.SetException(new InvalidOperationException("Mouse hook is not ready."));
+        else control.BeginInvoke(()=>done.TrySetResult());
+        return done.Task;
+    }
+    public void Dispose()
+    {
+        disposed=true;
+        try{Volatile.Read(ref pump)?.BeginInvoke(Application.ExitThread);}catch(InvalidOperationException){}
+    }
 }

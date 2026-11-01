@@ -18,13 +18,15 @@ internal sealed class DiscordPresence : IAsyncDisposable
     private readonly object sync = new();
     private Options options = new(false, "", true, false);
     private Track track = new(false, "", "", "", "", false, 0, 0, "");
+    private long trackAt;
     private string status = "disabled", detail = "", user = "";
     private bool active;
-    private readonly SemaphoreSlim wake = new(0, int.MaxValue);
+    private readonly SemaphoreSlim wake = new(0, 1);
     private readonly CancellationTokenSource stop = new();
     private readonly Task worker;
+    private readonly string pipePrefix;
 
-    public DiscordPresence() { worker = Task.Run(() => RunAsync(stop.Token)); }
+    public DiscordPresence(string pipePrefix="discord-ipc-") { this.pipePrefix=pipePrefix;worker = Task.Run(() => RunAsync(stop.Token)); }
 
     /// <summary>
     /// ID приложения Discord по умолчанию. Создайте приложение один раз на discord.com/developers и впишите его Application ID сюда:
@@ -119,7 +121,13 @@ internal sealed class DiscordPresence : IAsyncDisposable
 
     // ---------- вызывается из окна приложения ----------
     public void Configure(JsonNode? value) { var parsed = ParseOptions(value); lock (sync) options = parsed; Wake(); }
-    public void Update(JsonObject snapshot) { var parsed = ParseTrack(snapshot); lock (sync) track = parsed; Wake(); }
+    public void Update(JsonObject snapshot)
+    {
+        lock(sync)if(!options.Enabled||options.ClientId.Length==0)return;
+        var parsed=ParseTrack(snapshot);
+        lock(sync){track=parsed;trackAt=System.Diagnostics.Stopwatch.GetTimestamp();}
+        Wake();
+    }
     private void Wake() { try { wake.Release(); } catch (SemaphoreFullException) { } }
     private void SetStatus(string next, string text = "", string name = "", bool shown = false) { lock (sync) { status = next; detail = text; user = name; active = shown; } }
     public JsonObject Status() { lock (sync) return new JsonObject { ["status"] = status, ["detail"] = detail, ["user"] = user, ["active"] = active }; }
@@ -142,8 +150,11 @@ internal sealed class DiscordPresence : IAsyncDisposable
             {
                 try { await wake.WaitAsync(TimeSpan.FromSeconds(1), token); } catch (OperationCanceledException) { break; }
                 while (wake.Wait(0)) { }
-                Options o; Track t;
-                lock (sync) { o = options; t = track; }
+                Options o; Track t;long sampledAt;
+                lock (sync) { o = options; t = track; sampledAt=trackAt; }
+                // Discord owns the progress animation. Keep a stable start time
+                // while a slow music page temporarily delays the next snapshot.
+                if(t.Playing&&sampledAt!=0)t=t with {Position=t.Position+System.Diagnostics.Stopwatch.GetElapsedTime(sampledAt).TotalSeconds};
                 try
                 {
                     if (!o.Enabled || o.ClientId.Length == 0)
@@ -155,19 +166,21 @@ internal sealed class DiscordPresence : IAsyncDisposable
                     if (connection == null)
                     {
                         if (DateTime.UtcNow < nextConnect) continue;
-                        try { connection = await Connection.ConnectAsync(o.ClientId, token); }
+                        try { connection = await Connection.ConnectAsync(o.ClientId, pipePrefix, token); }
                         catch (InvalidOperationException error) { SetStatus("error", error.Message); nextConnect = DateTime.UtcNow.AddSeconds(30); continue; }
                         if (connection == null) { SetStatus("waiting", "Discord не найден"); nextConnect = DateTime.UtcNow.AddSeconds(10); continue; }
                         lastKey = "";
                     }
                     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                     var activity = BuildActivity(t, o, now);
-                    var key = activity == null ? "" : t.Title + "\n" + t.Artist + "\n" + t.Playing + "\n" + o.Artwork + "\n" + t.Artwork + "\n" + t.Service + "\n" + t.Album;
+                    var key = activity == null ? "" : t.Title + "\n" + t.Artist + "\n" + t.Playing + "\n" + o.Artwork + "\n" + t.Artwork + "\n" + t.Service + "\n" + t.Album+"\n"+t.Duration;
                     var start = activity == null ? 0 : now - (long)Math.Floor(t.Position);
                     var changed = key != lastKey || (activity != null && t.Playing && Math.Abs(start - lastStart) > 3);   // смена трека/паузы или перемотка
                     if (changed && DateTime.UtcNow - lastSent >= TimeSpan.FromSeconds(5))                                  // лимит Discord на обновления
                     {
-                        await connection.SetActivityAsync(activity, token);
+                        using var sendTimeout=CancellationTokenSource.CreateLinkedTokenSource(token);
+                        sendTimeout.CancelAfter(TimeSpan.FromSeconds(2));
+                        await connection.SetActivityAsync(activity, sendTimeout.Token);
                         lastSent = DateTime.UtcNow; lastKey = key; lastStart = start;
                     }
                     SetStatus("connected", "", connection.User, lastKey.Length > 0);
@@ -206,11 +219,11 @@ internal sealed class DiscordPresence : IAsyncDisposable
 
         private Connection(NamedPipeClientStream pipe, string clientId) { this.pipe = pipe; ClientId = clientId; }
 
-        public static async Task<Connection?> ConnectAsync(string clientId, CancellationToken token)
+        public static async Task<Connection?> ConnectAsync(string clientId, string pipePrefix, CancellationToken token)
         {
             for (var index = 0; index < 10; index++)
             {
-                var pipe = new NamedPipeClientStream(".", "discord-ipc-" + index, PipeDirection.InOut, PipeOptions.Asynchronous);
+                var pipe = new NamedPipeClientStream(".", pipePrefix + index, PipeDirection.InOut, PipeOptions.Asynchronous);
                 try
                 {
                     await pipe.ConnectAsync(150, token);

@@ -143,6 +143,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
     {
         await InitializeAsync();ObjectDisposedException.ThrowIf(disposed,this);
         if(!windows.TryGetValue(service,out var window)){window=await CreateWindowAsync(service);windows[service]=window;}
+        window.View.CoreWebView2.Resume();window.View.Visible=true;
         if(window.Origin!=origin)
         {
             window.Origin=origin;
@@ -150,9 +151,24 @@ internal sealed class EmbeddedMusicHost : IDisposable
             if(!Uri.TryCreate(source,UriKind.Absolute,out var current)||current.GetLeftPart(UriPartial.Authority)!=origin.TrimEnd('/'))
             {accounts[service]=false;window.View.CoreWebView2.Navigate(origin);}
         }
-        using var info=JsonDocument.Parse(await window.View.CoreWebView2.CallDevToolsProtocolMethodAsync("Target.getTargetInfo","{}"));
-        targets[service]=info.RootElement.GetProperty("targetInfo").GetProperty("targetId").GetString()!;
+        if(!targets.ContainsKey(service))
+        {
+            using var info=JsonDocument.Parse(await window.View.CoreWebView2.CallDevToolsProtocolMethodAsync("Target.getTargetInfo","{}"));
+            targets[service]=info.RootElement.GetProperty("targetInfo").GetProperty("targetId").GetString()!;
+        }
         return window;
+    }
+    internal async Task SuspendInactiveAsync(string service)
+    {
+        foreach(var (name,window) in windows)
+        {
+            if(name==service||window.LoginVisible)continue;
+            var core=window.View.CoreWebView2;
+            // Never freeze an engine which still has audio (e.g. pause failed).
+            if(core.IsDocumentPlayingAudio||core.IsSuspended)continue;
+            window.View.Visible=false;
+            try{await core.TrySuspendAsync();}catch(InvalidOperationException){}
+        }
     }
     internal void SetSignedIn(string service,bool value)
     {
