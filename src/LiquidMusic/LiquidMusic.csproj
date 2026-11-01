@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
-    <ApplicationIcon>../../ui/assets/app.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\ui\assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,8 +24,15 @@
   </Target>
 
   <ItemGroup>
-    <Content Include="../../ui/**/*" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="../../models/vosk-model-small-ru-0.22/**/*" Link="models/vosk-model-small-ru-0.22/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\ui\**\*" CopyToOutputDirectory="PreserveNewest" Link="ui\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="..\..\ui\assets\liquid-mood\**\*" CopyToOutputDirectory="PreserveNewest" Link="assets\liquid-mood\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="assets\liquid-mood\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\models\vosk-model-small-ru-0.22\**\*" Link="models\vosk-model-small-ru-0.22\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="models\vosk-model-small-ru-0.22\**\*" Condition="!Exists('..\..\models\vosk-model-small-ru-0.22')" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="BrowserScripts.js" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

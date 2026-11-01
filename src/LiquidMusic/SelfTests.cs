@@ -13,6 +13,8 @@ internal static class SelfTests
         var passed=new List<string>();
         try
         {
+            DiscordPresenceTests.Run();
+            passed.Add("Discord options, listening activity, timestamps and IPC frame encoding");
             Check(VoiceParser.Parse("Включи трек Династия!")==new VoiceCommand("search_play","Династия"),"Russian track parser");
             Check(VoiceParser.Parse("поставь на паузу").Action=="pause","Pause parser");
             Check(VoiceParser.Parse("следующий трек").Action=="next","Next parser");
@@ -29,7 +31,10 @@ internal static class SelfTests
             var settings=new Settings(file);settings.Save();
             Check(new Settings(file).Value["bindings"]!["voice"]!["key"]!.GetValue<string>()=="End","Settings migration");
             Check(settings.Service=="youtube","Service preservation");File.Delete(file);
+            Check(settings.Value["liquid_mood"]?["enabled"]?.GetValue<bool>()==false,"Liquid Mood remains opt-in");
             passed.Add("Existing JSON migration and atomic roundtrip");
+            LiquidMoodTests.Run();
+            passed.Add("Liquid Mood local categories, empty folders, image filtering and traversal rejection");
             Check(BrowserController.MatchesService("https://music.yandex.kz/search?text=1","yandex"),"Regional Yandex");
             Check(!BrowserController.MatchesService("https://music.yandex.kz.evil.example/","yandex"),"Domain boundary");
             Check(!BrowserController.MatchesService("http://music.yandex.kz/","yandex"),"HTTPS boundary");

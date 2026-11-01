@@ -3,6 +3,7 @@ try { playwright=require('playwright'); } catch (_) { playwright=require(require
 const {chromium}=playwright;
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 const {pathToFileURL} = require('node:url');
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:path.join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Microsoft/Edge/Application/msedge.exe')});
@@ -17,6 +18,9 @@ const {pathToFileURL} = require('node:url');
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
      get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:true,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz'}),
+     get_design:async()=>({ok:true,design:window.design||'aurora'}),
+     set_design:async(design)=>{window.design=design;return {ok:true,design};},
+     get_discord:async()=>({ok:true,enabled:false,status:'disabled'}),
      get_waves:async()=>window.waveError?{ok:false,error:'Войдите в Яндекс Музыку'}:{ok:true,waves:window.waves,wave_origin:'https://music.yandex.kz'},
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
@@ -36,8 +40,21 @@ const {pathToFileURL} = require('node:url');
      hide:async()=>({ok:true}),quit:async()=>({ok:true}),set_topmost:async()=>({ok:true}),set_startup:async()=>({ok:true})
    }};
  });
- await page.goto(pathToFileURL(path.resolve('ui/index.html')).href);
+ await page.addInitScript({path:path.resolve('ui/design.js')});
+ await page.addInitScript({path:path.resolve('ui/discord-settings.js')});
+ await page.route('https://liquid.local/**',async route=>{
+   const file=path.join(path.resolve('ui'),new URL(route.request().url()).pathname);
+   const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'};
+   if(!fs.existsSync(file)){await route.abort();return;}
+   await route.fulfill({body:fs.readFileSync(file),contentType:types[path.extname(file)]||'application/octet-stream'});
+ });
+ await page.goto('https://liquid.local/index.html');
+ await page.evaluate(()=>window.dispatchEvent(new Event('liquidready')));
  await page.waitForFunction(()=>document.getElementById('track-title').textContent==='NIGHT DRIVE');
+ await page.evaluate(()=>window.LiquidMood.configure({enabled:true}));
+ assert.ok(await page.locator('#liquid-mood').isVisible());
+ assert.ok(await page.locator('#volume').isVisible(),'Volume remains on the main screen with Liquid Mood open');
+ await page.locator('[data-mood=dismiss]').click();
  assert.equal(await page.locator('.genre').count(),14);
  assert.equal(await page.locator('.genres-section h2').textContent(),'Моя волна');
  assert.equal(await page.locator('.genre-name').first().textContent(),'Это поп!');
@@ -68,6 +85,13 @@ const {pathToFileURL} = require('node:url');
  await page.evaluate(()=>document.getElementById('toast').hidden=true);
  await page.screenshot({path:'tests/ui-preview.png'});
  await page.locator('#settings-button').click();
+ assert.equal(await page.locator('#design-settings').count(),1);
+ assert.equal(await page.locator('#discord-settings').count(),1);
+ assert.equal(await page.locator('#settings-dialog #fx-anim').count(),1);
+ await page.locator('#design-settings [data-design=abyss]').click();
+ await page.waitForFunction(()=>document.body.dataset.design==='abyss');
+ await page.locator('#design-settings [data-design=aurora]').click();
+ await page.waitForFunction(()=>document.body.dataset.design==='aurora');
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
  assert.equal(await page.locator('#deepseek-key').getAttribute('type'),'password');

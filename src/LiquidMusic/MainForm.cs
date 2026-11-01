@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
+using System.Drawing.Imaging;
+using System.Drawing.Drawing2D;
 
 namespace LiquidMusic;
 
@@ -13,13 +15,16 @@ internal sealed class MainForm : Form
     private readonly WebView2 view=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(11,22,40)};
     private readonly BrowserController browser;
     private readonly DeepSeekAssistant assistant;
+    private readonly HandoffServer handoff;
     private readonly VoiceAssistant voice;
     private readonly NotifyIcon tray=new();
     private readonly System.Windows.Forms.Timer poll=new(){Interval=1200};
     private readonly System.Windows.Forms.Timer wheelTimer=new(){Interval=90};
     private readonly System.Windows.Forms.Timer islandTimer=new(){Interval=120};
     private readonly NoActivatePopup popup=new();
-    private readonly NoActivatePopup island=new();
+    private readonly IslandWindow island=new();
+    private readonly DiscordPresence discord=new();
+    private DateTime islandPreviewUntil;
     private GlobalHotkeys? hotkeys;
     private WheelControl? wheel;
     private JsonObject snapshot=new(){["connected"]=false,["title"]="В ожидании музыки",["artist"]="Подключите браузер в настройках"};
@@ -36,6 +41,8 @@ internal sealed class MainForm : Form
     {
         browser=new(settings);
         assistant=new(settings);
+        discord.Configure(settings.Value["discord"]);
+        handoff=new(HandoffSnapshotAsync,HandoffCommandAsync);
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -55,12 +62,16 @@ internal sealed class MainForm : Form
         },(recording,token)=>assistant.TranscribeAsync(recording,token),()=>assistant.AudioRecognitionEnabled);
         voice.Changed+=()=>{if(!IsDisposed&&IsHandleCreated)BeginInvoke(()=>VoiceChanged());};
         Load+=async(_,_)=>await InitializeAsync();
+        HandleCreated+=(_,_)=>{ApplyRegion();ApplyCapture();};
+        SizeChanged+=(_,_)=>ApplyRegion();
+        LocationChanged+=(_,_)=>PushWindowPosition();
         Shown+=(_,_)=>{if(startHidden)Hide();};
         FormClosing+=(_,e)=>{if(!quitting){e.Cancel=true;Hide();}};
         poll.Tick+=async(_,_)=>await PollAsync();
         wheelTimer.Tick+=async(_,_)=>{var value=wheelTarget;wheelTarget=null;if(value!=null)await RunActionAsync("volume",value.Value);};
         islandTimer.Tick+=(_,_)=>UpdateIsland();
         island.Command+=async action=>await RunActionAsync(action);
+        settings.Value["fx"]=NormalizeFx(settings.Value["fx"]);
     }
     private async Task InitializeAsync()
     {
@@ -82,14 +93,17 @@ internal sealed class MainForm : Form
             menu.Items.Add("Следующий трек",null,async(_,_)=>await RunActionAsync("next"));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Подключить браузер…",null,async(_,_)=>{try{await SetupBrowserFromUiAsync(true);}catch(Exception e){MessageBox.Show(this,e.Message,"Liquid Music");}});
+            menu.Items.Add("Музыка на телефон…",null,(_,_)=>ShowHandoff());
             menu.Items.Add("Выйти",null,(_,_)=>Quit());
             tray.Icon=Icon;tray.Text="Liquid Music — C#";tray.ContextMenuStrip=menu;tray.Visible=true;
             tray.DoubleClick+=(_,_)=>ShowWidget();
             showWait=ThreadPool.RegisterWaitForSingleObject(showSignal,(_,_)=>{if(!IsDisposed)BeginInvoke(ShowWidget);},null,Timeout.Infinite,false);
             Directory.CreateDirectory(AppPaths.Data);
+            LiquidMood.EnsureFolders();
             var environment=await CoreWebView2Environment.CreateAsync(null,Path.Combine(AppPaths.Data,"widget-webview"));
             await view.EnsureCoreWebView2Async(environment);
             view.CoreWebView2.SetVirtualHostNameToFolderMapping("liquid.local",Path.Combine(AppContext.BaseDirectory,"ui"),CoreWebView2HostResourceAccessKind.DenyCors);
+            view.CoreWebView2.SetVirtualHostNameToFolderMapping("liquid-mood.local",LiquidMood.Root,CoreWebView2HostResourceAccessKind.DenyCors);
             view.CoreWebView2.Settings.AreDefaultContextMenusEnabled=false;
             view.CoreWebView2.Settings.AreDevToolsEnabled=false;
             view.CoreWebView2.NewWindowRequested+=(_,e)=>e.Handled=true;
@@ -98,8 +112,16 @@ internal sealed class MainForm : Form
             view.CoreWebView2.WebMessageReceived+=ReceiveMessage;
             view.CoreWebView2.ProcessFailed+=(_,e)=>AppPaths.Log("WebView process failed: "+e.ProcessFailedKind);
             await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BridgeScript);
+            // настройки Discord добавляются в окно настроек отдельным скриптом (ui\discord-settings.js); без файла просто нет блока
+            var designUi=Path.Combine(AppContext.BaseDirectory,"ui","design.js");   // переключатель дизайна «Аврора» / «Бездна»
+            if(File.Exists(designUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(designUi));
+            var discordUi=Path.Combine(AppContext.BaseDirectory,"ui","discord-settings.js");
+            if(File.Exists(discordUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(discordUi));
             view.CoreWebView2.Navigate("https://liquid.local/index.html");
+            view.CoreWebView2.NavigationCompleted+=(_,_)=>PushWindowPosition();
+            try{await island.StartAsync(environment);ApplyCapture();}catch(Exception e){AppPaths.Log("Island init: "+e);}
             if(!uiTest)await browser.InitializeConnectionAsync();
+            if(!uiTest)try{await handoff.StartAsync();}catch(Exception e){AppPaths.Log("Handoff server: "+e);}
             poll.Start();wheelTimer.Start();islandTimer.Start();
             await PollAsync();
             if(!uiTest)File.WriteAllText(Path.Combine(AppPaths.Logs,"native-startup.json"),JsonSerializer.Serialize(new{ok=true,hotkeyError,voiceKey=settings.Value["bindings"]?["voice"]?["key"]?.GetValue<string>(),browserConnected=snapshot["connected"]?.GetValue<bool>()==true,browser=browser.Status()}));
@@ -161,6 +183,14 @@ internal sealed class MainForm : Form
         catch(Exception error){AppPaths.Log(error);result=new{ok=false,error=error.Message};}
         if(!IsDisposed&&view.CoreWebView2!=null)view.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new{id,result}));
     }
+    private object DiscordState()
+    {
+        var result=(JsonObject)settings.Value["discord"]!.DeepClone();
+        var live=discord.Status();
+        result["ok"]=true;result["has_default"]=DiscordPresence.HasDefaultClientId;result["status"]=live["status"]?.DeepClone();result["detail"]=live["detail"]?.DeepClone();
+        result["user"]=live["user"]?.DeepClone();result["active"]=live["active"]?.DeepClone();
+        return result;
+    }
     private object State()=>new JsonObject(snapshot.Select(pair=>KeyValuePair.Create(pair.Key,pair.Value?.DeepClone())))
     {
         ["voice"]=voice.Snapshot(),["quality"]=settings.Value["quality"]?.DeepClone(),["service"]=settings.Service,["browser"]=browser.Status()
@@ -205,7 +235,21 @@ internal sealed class MainForm : Form
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
                 assistant.DeleteKey();assistant.SetEnabled(false);
                 return new{ok=true,deepseek=assistant.Status()};
+            case "get_handoff":return handoff.Status();
             case "get_drop":return settings.Value["drop"]!.DeepClone();
+            case "get_design":return new{ok=true,design=Settings.NormalizeDesign(settings.Value["design"])};
+            case "set_design":
+                settings.Value["design"]=Settings.NormalizeDesign(Arg(0));settings.Save();
+                return new{ok=true,design=Settings.NormalizeDesign(settings.Value["design"])};
+            case "get_discord":return DiscordState();
+            case "set_discord":
+                settings.Value["discord"]=Settings.NormalizeDiscord(Arg(0));settings.Save();discord.Configure(settings.Value["discord"]);
+                return DiscordState();
+            case "get_liquid_mood_images":return LiquidMood.ListImages(Arg(0)?.GetValue<string>());
+            case "set_liquid_mood":
+                var moodEnabled=Arg(0)?.GetValue<bool>()??false;
+                settings.Value["liquid_mood"]!["enabled"]=moodEnabled;settings.Save();
+                return new{ok=true,enabled=moodEnabled};
             case "show":ShowWidget();break;
             case "hide":Hide();break;
             case "quit":BeginInvoke(Quit);break;
@@ -227,11 +271,16 @@ internal sealed class MainForm : Form
                 snapshot=new(){["connected"]=false,["title"]="Подключение…"};await PollAsync();break;
             case "set_quality":
                 var quality=Arg(0)!.GetValue<string>();if(quality is not("high" or "medium" or "low"))throw new ArgumentException("Неизвестное качество");
-                settings.Value["quality"]=quality;settings.Save();break;
+                settings.Value["quality"]=quality;settings.Save();ApplyCapture();break;
             case "set_topmost":TopMost=Arg(0)!.GetValue<bool>();settings.Value["on_top"]=TopMost;settings.Save();break;
             case "set_startup":SetStartup(Arg(0)!.GetValue<bool>());break;
-            case "set_fx":settings.Value["fx"]=Arg(0)!.DeepClone();settings.Save();return new{ok=true};
-            case "get_backdrop":return new{ok=false};
+            case "set_fx":settings.Value["fx"]=NormalizeFx(Arg(0));settings.Save();ApplyCapture();return new{ok=true,fx=settings.Value["fx"]!.DeepClone()};
+            case "get_backdrop":return await GetBackdropAsync();
+            case "get_island_theme":return settings.Value["island_theme"]!.DeepClone();
+            case "set_island_theme":
+                settings.Value["island_theme"]=Settings.NormalizeIslandTheme(Arg(0));settings.Save();
+                return new{ok=true,theme=settings.Value["island_theme"]!.DeepClone()};
+            case "preview_island":islandPreviewUntil=DateTime.UtcNow.AddSeconds(4);break;
             case "save_drop":
                 var drop=Arg(0)!.AsObject();if(drop["side"]?.GetValue<string>() is not("top" or "bottom" or "left" or "right"))throw new ArgumentException("Неизвестный край экрана");
                 settings.Value["drop"]=drop.DeepClone();settings.Save();break;
@@ -251,6 +300,47 @@ internal sealed class MainForm : Form
             default:throw new ArgumentException("Неизвестный метод приложения");
         }
         return new{ok=true};
+    }
+    private async Task<object> GetBackdropAsync()
+    {
+        try
+        {
+            if(!Visible||WindowState==FormWindowState.Minimized||!GlassCaptureWanted())return new{ok=false};
+            var bounds=Bounds;
+            var scale=DeviceDpi/96.0;
+            var result=await Task.Run(()=>DesktopCapture.Grab(bounds,(int)(100*scale),0.6,72));
+            return result??new{ok=false};
+        }
+        catch(Exception error){AppPaths.Log(error);return new{ok=false};}
+    }
+    // fx: glass — шейдерное стекло, clear — фон «просвечивает» снимком рабочего стола, anim — анимация фона
+    private static JsonObject NormalizeFx(JsonNode? value)
+    {
+        bool Flag(string key)=>value is JsonObject o&&o[key] is JsonValue v&&v.TryGetValue<bool>(out var b)?b:true;
+        return new JsonObject{["glass"]=Flag("glass"),["clear"]=Flag("clear"),["anim"]=Flag("anim")};
+    }
+    private bool GlassCaptureWanted()
+    {
+        var fx=settings.Value["fx"];
+        // снимок нужен всегда, когда включено стекло: по нему кромка окна и острова искажает рабочий стол
+        return fx?["glass"]?.GetValue<bool>()==true&&settings.Value["quality"]?.GetValue<string>()!="low";
+    }
+    // окна приложения исключаются из захвата, пока включён «прозрачный» режим (иначе в снимок попал бы сам виджет)
+    private void ApplyCapture()
+    {
+        var on=GlassCaptureWanted();
+        if(IsHandleCreated)Native.SetWindowDisplayAffinity(Handle,on?0x11u:0u);
+        island.SetCapture(on);
+    }
+    private void ApplyRegion()
+    {
+        if(!IsHandleCreated||Width<8||Height<8)return;
+        using var path=DesktopCapture.Rounded(new Rectangle(0,0,Width,Height),(int)Math.Round(30*DeviceDpi/96.0));
+        Region=new Region(path);
+    }
+    private void PushWindowPosition()
+    {
+        if(view.CoreWebView2!=null)_=view.ExecuteScriptAsync($"window.LiquidGlass&&LiquidGlass.setPos({Left},{Top})");
     }
     private void SaveSettings(JsonArray args)
     {
@@ -277,6 +367,39 @@ internal sealed class MainForm : Form
         }
         catch{hotkeys.Apply(old);foreach(var pair in previous)settings.Value[pair.Key]=pair.Value?.DeepClone();throw;}
     }
+    private async Task<JsonObject> HandoffSnapshotAsync()
+    {
+        if(uiTest||quitting)return (JsonObject)snapshot.DeepClone();
+        // Для переноса нельзя незаметно подставить старую позицию, пока
+        // обычный опрос или команда удерживают браузер. Ждём новый снимок.
+        for(var attempt=0;attempt<40;attempt++)
+        {
+            var next=await browser.SnapshotAsync(settings.Service);
+            if(next["busy"]==null)
+            {
+                snapshot=next;
+                return (JsonObject)next.DeepClone();
+            }
+            await Task.Delay(100);
+        }
+        throw new InvalidOperationException("Плеер занят другой командой. Повторите перенос через несколько секунд.");
+    }
+    private async Task<JsonObject> HandoffCommandAsync(string action)
+    {
+        if(action!="pause")throw new ArgumentException("Неизвестная команда переноса");
+        var result=await browser.CommandAsync(settings.Service,"pause");
+        snapshot=result;
+        return (JsonObject)result.DeepClone();
+    }
+    private void ShowHandoff()
+    {
+        var status=handoff.Status();
+        var addresses=status["addresses"]?.AsArray().Select(item=>item?.GetValue<string>()).Where(item=>!string.IsNullOrEmpty(item)).ToArray()??[];
+        var message=status["running"]?.GetValue<bool>()==true
+            ? "На телефоне укажите один из адресов и код сопряжения.\n\nАдрес ПК:\n"+(addresses.Length>0?string.Join("\n",addresses):"Сетевой адрес не найден")+"\n\nКод: "+status["pairing_key"]?.GetValue<string>()+"\n\nТелефон и ПК должны быть в одной сети Wi-Fi. Код действует до перезапуска Liquid Music."
+            : "Сервер переноса не запущен. "+status["error"]?.GetValue<string>();
+        MessageBox.Show(this,message,"Liquid Music — музыка на телефон",MessageBoxButtons.OK,MessageBoxIcon.Information);
+    }
     private async Task PollAsync()
     {
         if(polling||quitting)return;polling=true;
@@ -284,7 +407,7 @@ internal sealed class MainForm : Form
         {
             var service=settings.Service;
             var next=await browser.SnapshotAsync(service);
-            if(service==settings.Service&&next["busy"]==null)snapshot=next;
+            if(service==settings.Service&&next["busy"]==null){snapshot=next;discord.Update(snapshot);}
         }
         catch(Exception error){AppPaths.Log(error);}
         finally{polling=false;}
@@ -327,18 +450,37 @@ internal sealed class MainForm : Form
     }
     private void UpdateIsland()
     {
-        if(settings.Value["drop"]?["enabled"]?.GetValue<bool>()!=true){island.Hide();return;}
+        if(DateTime.UtcNow<islandPreviewUntil)
+        {
+            // показ острова из настроек: раскрыт на выбранном краю, пока идёт предпросмотр (цвета видно сразу)
+            island.SetMode(IslandMode.Expanded,settings.Value["drop"]?["side"]?.GetValue<string>()??"top",Screen.FromPoint(Cursor.Position).WorkingArea);
+            island.Render(IslandState());return;
+        }
+        if(settings.Value["drop"]?["enabled"]?.GetValue<bool>()!=true){if(island.Mode!=IslandMode.Hidden)island.SetMode(IslandMode.Hidden,"top",Rectangle.Empty);return;}
         var cursor=Cursor.Position;var area=Screen.FromPoint(cursor).WorkingArea;
         var side=settings.Value["drop"]?["side"]?.GetValue<string>()??"top";
         var distance=side switch{"top"=>Math.Abs(cursor.Y-area.Top),"bottom"=>Math.Abs(cursor.Y-area.Bottom),"left"=>Math.Abs(cursor.X-area.Left),_=>Math.Abs(cursor.X-area.Right)};
-        if(distance<=3)
+        var atEdge=distance<=3;
+        var next=island.Mode;
+        if(island.Mode==IslandMode.Hidden){if(atEdge)next=IslandMode.Compact;}
+        else if(island.Mode==IslandMode.Compact)
         {
-            island.Size=new(340,110);
-            island.Location=side switch{"top"=>new(area.Left+(area.Width-island.Width)/2,area.Top+5),"bottom"=>new(area.Left+(area.Width-island.Width)/2,area.Bottom-island.Height-5),"left"=>new(area.Left+5,area.Top+(area.Height-island.Height)/2),_=>new(area.Right-island.Width-5,area.Top+(area.Height-island.Height)/2)};
-            island.SetTrack(snapshot);
-            if(!island.Visible)island.Show();
+            if(Rectangle.Inflate(island.TargetBounds,14,14).Contains(cursor))next=IslandMode.Expanded;
+            else if(!atEdge&&!Rectangle.Inflate(island.TargetBounds,35,35).Contains(cursor))next=IslandMode.Hidden;
         }
-        else if(island.Visible&&!Rectangle.Inflate(island.Bounds,35,35).Contains(cursor))island.Hide();
+        else if(!Rectangle.Inflate(island.TargetBounds,35,35).Contains(cursor))next=atEdge?IslandMode.Compact:IslandMode.Hidden;
+        island.SetMode(next,side,area);
+        if(next!=IslandMode.Hidden)island.Render(IslandState());
+    }
+    private JsonObject IslandState()
+    {
+        var fx=settings.Value["fx"];var quality=settings.Value["quality"]?.GetValue<string>()??"high";
+        var glass=fx?["glass"]?.GetValue<bool>()==true&&quality!="low";
+        var state=new JsonObject();
+        foreach(var key in new[]{"title","artist","artwork","playing","position","duration","connected"})state[key]=snapshot[key]?.DeepClone();
+        state["quality"]=quality;state["glass"]=glass;state["clear"]=glass&&fx?["clear"]?.GetValue<bool>()==true;state["backdrop"]=glass;state["anim"]=fx?["anim"]?.GetValue<bool>()!=false;
+        state["theme"]=settings.Value["island_theme"]?.DeepClone();
+        return state;
     }
     private async Task<bool> SetupBrowserFromUiAsync(bool updateShortcuts)
     {
@@ -379,7 +521,7 @@ internal sealed class MainForm : Form
     {
         if(quitting)return;quitting=true;lifetime.Cancel();poll.Stop();wheelTimer.Stop();islandTimer.Stop();
         voice.Dispose();assistant.Dispose();hotkeys?.Dispose();wheel?.Dispose();showWait?.Unregister(null);showSignal.Dispose();tray.Visible=false;tray.Dispose();popup.Dispose();island.Dispose();
-        await browser.DisposeAsync();Close();Application.Exit();
+        await discord.DisposeAsync();await handoff.DisposeAsync();await browser.DisposeAsync();Close();Application.Exit();
     }
 }
 

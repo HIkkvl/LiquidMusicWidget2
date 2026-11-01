@@ -15,8 +15,8 @@ body.lg-on .shell :is(.player,.preferences,.footer,.genre)::before{display:none}
 
 body.lg-on .shell .genres{-webkit-mask-image:none;mask-image:none}
 body.lg-on .shell .genre{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
-body.lg-on .shell .genre:hover{background:rgba(255,255,255,.07)}
-body.lg-on .shell .genre.selected{background:linear-gradient(105deg,rgba(94,194,255,.26),rgba(180,140,255,.20));box-shadow:inset 0 0 0 1px rgba(255,255,255,.40)}
+body.lg-on .shell .genre:hover{background:rgba(255,255,255,.10)}
+body.lg-on .shell .genre.selected{background:linear-gradient(105deg,rgba(255,150,205,.34),rgba(190,90,220,.26));box-shadow:inset 0 0 0 1px rgba(255,255,255,.40)}
 body[data-service="youtube"].lg-on .shell .genre.selected{background:linear-gradient(105deg,rgba(255,91,106,.28),rgba(217,38,74,.22))}
 
 body.lg-on .shell .icon-button{background:none;border-color:transparent;box-shadow:none}

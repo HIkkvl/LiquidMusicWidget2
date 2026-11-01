@@ -1,0 +1,163 @@
+/* ==========================================================
+   Liquid Mood — плашка внутри окна.
+   Лежит в обычном потоке .shell (никакого position:fixed/absolute относительно окна), поэтому плеер она не перекрывает:
+   пока плашка открыта, она занимает место списка жанров и панели настроек (.shell.mood-open).
+   Цвета берутся из темы приложения (--blue / --indigo / --violet), поэтому следуют за Яндекс Музыкой и YouTube.
+   ========================================================== */
+.liquid-mood{
+  --mood-a:var(--blue,#ff9ccb);--mood-b:var(--indigo,#d65fb0);--mood-c:var(--violet,#a85bd6);
+  position:relative;isolation:isolate;display:flex;flex-direction:column;gap:11px;
+  flex:1 1 auto;min-height:0;overflow:hidden;padding:15px 16px 14px;border-radius:var(--radius-l,24px);
+  background:
+    linear-gradient(150deg,rgba(255,255,255,.17),rgba(255,255,255,.05) 34%,rgba(255,255,255,.075) 68%,rgba(255,255,255,.04)),
+    linear-gradient(160deg,rgba(40,16,48,.34),rgba(14,6,22,.42));
+  box-shadow:var(--glass-highlight),0 22px 48px rgba(6,2,16,.38);
+  backdrop-filter:blur(30px) saturate(185%) brightness(1.05);-webkit-backdrop-filter:blur(30px) saturate(185%) brightness(1.05);
+  animation:moodArrive .55s cubic-bezier(.2,.8,.2,1);
+}
+.liquid-mood[hidden]{display:none}
+.shell.mood-open .genres-section{display:none}
+/* мягкое «дыхание» цвета за стеклом + блик по верхней кромке */
+.mood-aura{position:absolute;inset:-30%;z-index:-1;pointer-events:none;filter:blur(28px);opacity:.9;animation:moodDrift 24s ease-in-out infinite alternate;
+  background:
+    radial-gradient(38% 34% at 18% 14%,color-mix(in srgb,var(--mood-a) 55%,transparent),transparent 70%),
+    radial-gradient(36% 34% at 88% 82%,color-mix(in srgb,var(--mood-c) 50%,transparent),transparent 70%),
+    radial-gradient(30% 28% at 70% 12%,color-mix(in srgb,var(--mood-b) 40%,transparent),transparent 70%)}
+.liquid-mood::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(118deg,rgba(255,255,255,.2),transparent 36%)}
+
+/* ---- верхняя строка ---- */
+.mood-top{display:flex;align-items:center;gap:10px;min-height:30px;flex:none}
+.mood-back{display:grid;place-items:center;width:30px;height:30px;padding:0;border:0;border-radius:50%;color:var(--text);
+  background:rgba(255,255,255,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 0 0 .5px rgba(255,255,255,.14);
+  transition:background .2s,transform .3s var(--spring,ease)}
+.mood-back[hidden]{display:none}
+.mood-back:hover{background:rgba(255,255,255,.2)}.mood-back:active{transform:scale(.9)}
+.mood-back svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.mood-brand{font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;color:var(--text-2)}
+.mood-local{margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:10.5px;color:var(--text-2);
+  background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.18);white-space:nowrap}
+.mood-local svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- содержимое ---- */
+.mood-stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.28) transparent}
+.mood-stage.swap{animation:moodSwap .38s cubic-bezier(.2,.8,.2,1)}
+.mood-stage>:first-child{margin-top:auto}      /* «центр» через auto-поля: justify-content:center обрезал бы верх при прокрутке */
+.mood-stage>:last-child{margin-bottom:auto}
+.mood-intro{flex:none}
+.mood-intro h2{margin:0;font-size:21px;line-height:1.2;letter-spacing:-.4px;font-weight:600}
+.mood-intro p{margin:6px 0 0;font-size:13px;line-height:1.45;color:var(--text-2)}
+.liquid-mood[data-view="viewer"] .mood-stage{gap:10px}
+.liquid-mood[data-view="viewer"] .mood-stage>:first-child{margin-top:0}
+.liquid-mood[data-view="viewer"] .mood-stage>:last-child{margin-bottom:0}
+.liquid-mood[data-view="viewer"] .mood-intro h2{font-size:16px;letter-spacing:-.2px}
+.liquid-mood[data-view="viewer"] .mood-intro p{display:none}
+
+/* плитки выбора */
+.mood-actions{flex:none}
+.mood-actions[data-layout="tiles"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.mood-tile{position:relative;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;min-height:58px;padding:9px 12px;
+  border:0;border-radius:18px;text-align:left;color:var(--text);
+  background:linear-gradient(145deg,rgba(255,255,255,.15),rgba(255,255,255,.05));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 0 0 .5px rgba(255,255,255,.16),0 8px 20px rgba(6,2,16,.22);
+  transition:transform .35s var(--spring,ease),background .2s,box-shadow .2s}
+.mood-tile:hover{transform:translateY(-2px);background:linear-gradient(145deg,rgba(255,255,255,.23),rgba(255,255,255,.08));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 0 0 .5px rgba(255,255,255,.22),0 12px 26px rgba(6,2,16,.3)}
+.mood-tile:active{transform:scale(.97)}
+.mood-icon{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;
+  background:radial-gradient(circle at 30% 24%,rgba(255,255,255,.55),transparent 55%),linear-gradient(140deg,var(--mood-a),var(--mood-c));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.6),0 4px 12px color-mix(in srgb,var(--mood-b) 45%,transparent)}
+.mood-icon svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 1px rgba(60,10,60,.35))}
+.mood-label{font-size:13.5px;font-weight:550;line-height:1.25}
+
+/* кнопки-полоса */
+.mood-actions[data-layout="bar"]{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.mood-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:9px 16px;border:0;border-radius:14px;
+  font-size:13px;font-weight:550;color:var(--text);background:rgba(255,255,255,.1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 0 0 .5px rgba(255,255,255,.14);
+  transition:background .2s,transform .3s var(--spring,ease),filter .2s,opacity .2s}
+.mood-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.mood-btn:hover{background:rgba(255,255,255,.18)}.mood-btn:active{transform:scale(.97)}
+.mood-btn.primary{flex:1 1 150px;color:#fff;background:linear-gradient(120deg,var(--mood-a),var(--mood-b) 60%,var(--mood-c));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.55),inset 0 -8px 16px rgba(80,10,70,.22),0 8px 22px color-mix(in srgb,var(--mood-b) 40%,transparent)}
+.mood-btn.primary:hover{filter:brightness(1.1)}
+.mood-btn.quiet{background:none;box-shadow:none;color:var(--text-2);padding-inline:12px}
+.mood-btn.quiet:hover{color:var(--text);background:rgba(255,255,255,.07)}
+.mood-btn:disabled{opacity:.45;cursor:default;pointer-events:none}
+.mood-actions[data-layout="tiles"] .mood-btn.quiet{grid-column:1/-1;justify-self:center;min-height:34px;padding-block:6px}
+
+/* просмотр: одна картинка */
+.mood-viewer{margin:0;display:flex;flex:1 1 220px;min-height:150px}
+.mood-viewer[hidden]{display:none}
+.mood-frame{position:relative;flex:1 1 auto;min-height:150px;padding:0;border:0;border-radius:20px;overflow:hidden;cursor:pointer;color:var(--text);
+  background:rgba(8,3,16,.45);box-shadow:0 12px 30px rgba(6,2,16,.35)}
+.mood-frame::before{content:'';position:absolute;inset:-25%;background:var(--mood-img) center/cover;filter:blur(28px) saturate(160%);opacity:.65;transition:opacity .4s}
+.mood-frame::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.3)}
+.mood-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .35s}
+.mood-viewer[data-state="ready"] img{opacity:1}
+.mood-viewer[data-state="ready"] img.enter{animation:moodPhoto .5s cubic-bezier(.2,.8,.2,1)}
+.mood-viewer[data-state="loading"] .mood-frame::before{opacity:.25}
+.mood-skeleton{position:absolute;inset:0;opacity:0;transition:opacity .2s;
+  background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%) -100% 0/200% 100% no-repeat;animation:moodShimmer 1.3s linear infinite}
+.mood-viewer[data-state="loading"] .mood-skeleton{opacity:1}
+.mood-counter{position:absolute;left:10px;bottom:10px;padding:3px 10px;border-radius:999px;font-size:11px;color:var(--text);
+  background:rgba(12,5,20,.5);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.2)}
+.mood-counter:empty{display:none}
+.mood-frame:focus-visible{outline:2px solid rgba(255,255,255,.85);outline-offset:3px}
+
+/* сообщения (пустая папка, ошибка) */
+.mood-status{flex:none;margin:0;padding:13px 14px;border-radius:16px;background:rgba(8,3,16,.28);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14);
+  font-size:12.5px;line-height:1.55;color:var(--text-2);overflow-wrap:anywhere}
+.mood-status[hidden]{display:none}
+.mood-path{display:inline-block;margin:0 1px;padding:1px 7px;border-radius:7px;background:rgba(255,255,255,.1);color:var(--text);font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px}
+
+@keyframes moodArrive{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes moodSwap{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes moodPhoto{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+@keyframes moodShimmer{to{background-position:200% 0}}
+@keyframes moodDrift{from{transform:translate3d(-3%,-2%,0) rotate(0)}to{transform:translate3d(3%,2%,0) rotate(6deg)}}
+
+/* ---- адаптация под размер окна ---- */
+/* высокое окно: плитки «воздушнее» — иконка сверху, подпись снизу */
+@media (min-height:940px){
+  .mood-tile{flex-direction:column;align-items:flex-start;justify-content:space-between;gap:10px;min-height:84px;padding:12px 13px}
+}
+@media (max-width:380px){
+  .liquid-mood{padding:13px 12px 12px}
+  .mood-local span{display:none}
+  .mood-intro h2{font-size:19px}
+  .mood-tile{min-height:54px;padding:8px 10px}
+}
+@media (max-width:320px){.mood-actions[data-layout="tiles"]{grid-template-columns:1fr}.mood-tile{flex-direction:row;align-items:center;min-height:56px}}
+@media (max-height:780px){
+  .liquid-mood{gap:8px;padding:11px 12px 11px}
+  .mood-top{min-height:26px}.mood-local{display:none}
+  .mood-stage{gap:9px}
+  .mood-intro p{display:none}
+  .mood-intro h2{font-size:18px}
+  .mood-actions[data-layout="tiles"]{gap:8px}
+  .mood-tile{flex-direction:row;align-items:center;justify-content:flex-start;min-height:46px;gap:9px;padding:7px 10px;border-radius:15px}
+  .mood-icon{flex:none;width:26px;height:26px}.mood-icon svg{width:15px;height:15px}
+  .mood-label{font-size:12.5px}
+  .mood-btn{min-height:36px;padding:7px 14px}
+  .mood-viewer,.mood-frame{min-height:120px}
+}
+@media (max-height:560px){.mood-viewer,.mood-frame{min-height:96px}.mood-btn{min-height:36px}}
+
+/* ---- качество и анимации ---- */
+body[data-quality="low"] .liquid-mood{backdrop-filter:none;-webkit-backdrop-filter:none;animation:none;background:linear-gradient(160deg,rgba(60,24,64,.62),rgba(20,8,30,.7))}
+body[data-quality="low"] .mood-aura{animation:none;filter:none;opacity:.5}
+@media (prefers-reduced-motion:reduce){
+  .liquid-mood,.mood-stage.swap,.mood-viewer img.enter,.mood-aura,.mood-skeleton{animation:none!important}
+  .mood-tile,.mood-btn,.mood-back{transition:none}
+}
+
+/* ---- настройки: раздел «Liquid Mood» ---- */
+.mood-settings{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--radius-s,13px);background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.mood-settings .island-hint b{font-weight:600;color:var(--text)}
+.mood-settings-actions{display:flex;align-items:center;gap:10px}
+.mood-settings-actions button{padding:7px 12px;border-radius:10px;border:1px solid var(--stroke,rgba(255,255,255,.16));background:rgba(255,255,255,.06);
+  font-size:12px;color:var(--text-2);transition:background .2s,color .2s}
+.mood-settings-actions button:hover:not(:disabled){background:rgba(255,255,255,.14);color:var(--text)}
+.mood-settings-actions button:disabled{opacity:.45;cursor:default}

@@ -118,8 +118,57 @@ internal sealed class BrowserController : IAsyncDisposable
     {
         if(!MatchesService(page.Url,service))throw new InvalidOperationException("Музыкальная вкладка перешла на другой сайт. Завершите вход в браузере и повторите.");
         if(service=="yandex")yandex.Remember(page.Url);
+        var snapshot=await EvaluateSnapshotAsync(page,service);
+        // Яндекс Музыка играет через `new Audio()`, которого нет в DOM: тогда время и ссылка на поток недоступны.
+        // Находим такие элементы через CDP и регистрируем их для скрипта страницы.
+        if(service=="yandex"&&snapshot["playing"]?.GetValue<bool>()==true&&
+           (snapshot["media_found"]?.GetValue<bool>()!=true||snapshot["media_stale"]?.GetValue<bool>()==true)&&
+           DateTime.UtcNow-lastMediaRegister>TimeSpan.FromSeconds(3))
+        {
+            lastMediaRegister=DateTime.UtcNow;
+            try{await RegisterMediaAsync(page);snapshot=await EvaluateSnapshotAsync(page,service);}
+            catch(Exception e){AppPaths.Log("Media registry: "+e.Message);}
+        }
+        // Трек играет, а времени всё равно нет: один раз в минуту пишем подробный дамп плеера для разбора
+        if(service=="yandex"&&snapshot["playing"]?.GetValue<bool>()==true&&(snapshot["duration"]?.GetValue<double>()??0)<=0&&
+           DateTime.UtcNow-lastTimeDiagnostic>TimeSpan.FromSeconds(60))
+        {
+            lastTimeDiagnostic=DateTime.UtcNow;
+            try
+            {
+                var detail=await page.EvaluateAsync<JsonElement>(script,new{action="diagnose_time",service});
+                Directory.CreateDirectory(AppPaths.Logs);
+                File.WriteAllText(Path.Combine(AppPaths.Logs,"time-diagnostic.json"),detail.GetRawText());
+            }
+            catch(Exception e){AppPaths.Log("Time diagnostic: "+e.Message);}
+        }
+        return snapshot;
+    }
+    private DateTime lastMediaRegister=DateTime.MinValue,lastTimeDiagnostic=DateTime.MinValue;
+    private async Task<JsonObject> EvaluateSnapshotAsync(IPage page,string service)
+    {
         var result=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service});
         return JsonNode.Parse(result.GetRawText())?.AsObject()??new();
+    }
+    private static async Task RegisterMediaAsync(IPage page)
+    {
+        var session=await page.Context.NewCDPSessionAsync(page);
+        try
+        {
+            var prototype=await session.SendAsync("Runtime.evaluate",new Dictionary<string,object>{["expression"]="HTMLMediaElement.prototype"});
+            var prototypeId=prototype?.GetProperty("result").GetProperty("objectId").GetString();
+            if(prototypeId==null)return;
+            var found=await session.SendAsync("Runtime.queryObjects",new Dictionary<string,object>{["prototypeObjectId"]=prototypeId});
+            var arrayId=found?.GetProperty("objects").GetProperty("objectId").GetString();
+            if(arrayId==null)return;
+            // queryObjects возвращает и сами прототипы (HTMLAudioElement.prototype): их поля бросают Illegal invocation
+            await session.SendAsync("Runtime.callFunctionOn",new Dictionary<string,object>
+            {
+                ["objectId"]=arrayId,["returnByValue"]=true,
+                ["functionDeclaration"]="function(){window.__lmMedia=Array.from(this).filter(e=>{try{return e instanceof HTMLMediaElement&&typeof e.paused==='boolean'}catch(_){return false}});return window.__lmMedia.length}"
+            });
+        }
+        finally{try{await session.DetachAsync();}catch{}}
     }
     public async Task<JsonObject> SnapshotAsync(string service)
     {
