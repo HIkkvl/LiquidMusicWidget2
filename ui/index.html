@@ -85,21 +85,20 @@
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
 <dialog id="settings-dialog">
-  <div class="settings-panel glass"><div class="settings-heading"><div><span class="eyebrow">ПОД ВАШ РИТМ</span><h2>Настройки виджета</h2></div><button class="icon-button" id="dismiss-settings" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></div><p class="settings-intro">Управляйте музыкой из любой программы,<br>даже когда виджет скрыт.</p><section class="window-settings" aria-label="Окно и оформление">
-    <h3>Окно и оформление</h3>
-    <label class="preference"><svg><use href="#i-play"/></svg><span>Автозапуск с Windows</span><input id="startup" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
-    <label class="preference"><svg><use href="#i-window"/></svg><span>Поверх всех окон</span><input id="on-top" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
-    <div class="quality-row" role="group" aria-label="Качество отображения">
-      <svg><use href="#i-gauge"/></svg>
-      <div class="quality-tabs">
-        <button class="quality-tab" data-quality="high" type="button">Высокое</button>
-        <button class="quality-tab" data-quality="medium" type="button">Среднее</button>
-        <button class="quality-tab" data-quality="low" type="button">Низкое</button>
-      </div>
+  <div class="settings-panel glass">
+    <div class="settings-heading"><div><span class="eyebrow">ПОД ВАШ РИТМ</span><h2>Настройки виджета</h2></div><button class="icon-button" id="dismiss-settings" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></div>
+    <div class="settings-tabs" role="tablist" aria-label="Разделы настроек">
+      <button type="button" class="settings-tab" id="settings-tab-controls" role="tab" aria-controls="settings-controls" aria-selected="true" tabindex="0" data-settings-tab="controls">Управление</button>
+      <button type="button" class="settings-tab" id="settings-tab-appearance" role="tab" aria-controls="settings-appearance" aria-selected="false" tabindex="-1" data-settings-tab="appearance">Оформление</button>
+      <button type="button" class="settings-tab" id="settings-tab-browser" role="tab" aria-controls="settings-browser" aria-selected="false" tabindex="-1" data-settings-tab="browser">Браузер</button>
+      <button type="button" class="settings-tab" id="settings-tab-assistant" role="tab" aria-controls="settings-assistant" aria-selected="false" tabindex="-1" data-settings-tab="assistant">Помощник</button>
+      <button type="button" class="settings-tab" id="settings-tab-island" role="tab" aria-controls="settings-island" aria-selected="false" tabindex="-1" data-settings-tab="island">Остров</button>
+      <button type="button" class="settings-tab" id="settings-tab-discord" role="tab" aria-controls="settings-discord" aria-selected="false" tabindex="-1" data-settings-tab="discord">Discord</button>
+      <button type="button" class="settings-tab" id="settings-tab-mood" role="tab" aria-controls="settings-mood" aria-selected="false" tabindex="-1" data-settings-tab="mood">Liquid Mood</button>
     </div>
-    <label class="preference"><svg><use href="#i-glass"/></svg><span>Жидкое стекло</span><input id="fx-glass" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
-    <label class="preference" id="fx-clear-row"><svg><use href="#i-window"/></svg><span>Прозрачное окно</span><input id="fx-clear" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
-  </section><div id="shortcut-rows" class="shortcut-rows"></div><section class="wheel-settings" aria-label="Громкость колёсиком мыши">
+    <div class="settings-pages">
+      <section class="settings-tabpanel" id="settings-controls" role="tabpanel" aria-labelledby="settings-tab-controls" tabindex="0">
+<p class="settings-intro">Управляйте музыкой из любой программы, даже когда виджет скрыт.</p><h3 class="settings-section-title">Горячие клавиши</h3><div id="shortcut-rows" class="shortcut-rows"></div><section class="wheel-settings" aria-label="Громкость колёсиком мыши">
   <h3>Громкость колёсиком мыши</h3>
   <p class="island-hint">Зажмите выбранную клавишу и крутите колёсико — громкость изменится из любой программы, даже когда виджет скрыт.</p>
   <label class="preference"><svg><use href="#i-volume"/></svg><span>Включить колёсико</span><input id="wheel-enabled" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
@@ -121,7 +120,33 @@
       </select>
     </label>
   </div>
-</section><section class="island-settings" aria-label="Остров у края экрана"><label class="preference"><svg><use href="#i-window"/></svg><span>Остров у края экрана</span><input id="island-enabled" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label><p class="island-hint">Наведите курсор на выбранный край экрана — появится остров с музыкой. Подведите курсор к нему, и он раскроется с кнопками.</p><div class="screen-picker" id="island-picker" role="group" aria-label="Край экрана для острова"><button type="button" data-side="top" aria-pressed="true">Сверху</button><button type="button" data-side="left" aria-pressed="false">Слева</button><button type="button" data-side="right" aria-pressed="false">Справа</button><button type="button" data-side="bottom" aria-pressed="false">Снизу</button><span class="screen-center" aria-hidden="true">экран</span></div><p class="island-status" id="island-status" role="status"></p></section><section class="island-theme" aria-label="Цвета острова">
+</section><div id="overlay-settings-content"></div><p class="settings-note">Num-клавиши работают при включённом Num Lock. Выберите «Не назначена», чтобы отключить действие.</p><button type="button" id="reset-shortcuts" class="settings-reset">Сбросить клавиши</button>
+      </section>
+      <section class="settings-tabpanel" id="settings-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" tabindex="0" hidden>
+<section class="window-settings" aria-label="Окно и оформление">
+    <h3>Окно и оформление</h3>
+    <label class="preference"><svg><use href="#i-play"/></svg><span>Автозапуск с Windows</span><input id="startup" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
+    <label class="preference"><svg><use href="#i-window"/></svg><span>Поверх всех окон</span><input id="on-top" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+    <div class="quality-row" role="group" aria-label="Качество отображения">
+      <svg><use href="#i-gauge"/></svg>
+      <div class="quality-tabs">
+        <button class="quality-tab" data-quality="high" type="button">Высокое</button>
+        <button class="quality-tab" data-quality="medium" type="button">Среднее</button>
+        <button class="quality-tab" data-quality="low" type="button">Низкое</button>
+      </div>
+    </div>
+    <label class="preference"><svg><use href="#i-glass"/></svg><span>Жидкое стекло</span><input id="fx-glass" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+    <label class="preference" id="fx-clear-row"><svg><use href="#i-window"/></svg><span>Прозрачное окно</span><input id="fx-clear" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+  </section>
+      </section>
+      <section class="settings-tabpanel" id="settings-browser" role="tabpanel" aria-labelledby="settings-tab-browser" tabindex="0" hidden>
+<div id="browser-settings-content"></div>
+      </section>
+      <section class="settings-tabpanel" id="settings-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant" tabindex="0" hidden>
+<div id="assistant-settings-content"></div>
+      </section>
+      <section class="settings-tabpanel" id="settings-island" role="tabpanel" aria-labelledby="settings-tab-island" tabindex="0" hidden>
+<section class="island-settings" aria-label="Остров у края экрана"><label class="preference"><svg><use href="#i-window"/></svg><span>Остров у края экрана</span><input id="island-enabled" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label><p class="island-hint">Наведите курсор на выбранный край экрана — появится остров с музыкой. Подведите курсор к нему, и он раскроется с кнопками.</p><div class="screen-picker" id="island-picker" role="group" aria-label="Край экрана для острова"><button type="button" data-side="top" aria-pressed="true">Сверху</button><button type="button" data-side="left" aria-pressed="false">Слева</button><button type="button" data-side="right" aria-pressed="false">Справа</button><button type="button" data-side="bottom" aria-pressed="false">Снизу</button><span class="screen-center" aria-hidden="true">экран</span></div><p class="island-status" id="island-status" role="status"></p></section><section class="island-theme" aria-label="Цвета острова">
   <h3>Цвета острова</h3>
   <p class="island-hint">Отдельная цветовая схема для острова. Основное окно не меняется.</p>
   <div class="theme-swatches" id="island-themes" role="radiogroup" aria-label="Цветовая схема острова"></div>
@@ -131,12 +156,22 @@
     <label>Светлый<input type="color" id="ic-light" value="#ffe4f1"></label>
   </div>
   <div class="theme-actions"><button type="button" id="island-preview">Показать остров</button><span class="island-status" id="theme-status" role="status"></span></div>
-</section><section class="mood-settings" aria-label="Liquid Mood">
+</section>
+      </section>
+      <section class="settings-tabpanel" id="settings-discord" role="tabpanel" aria-labelledby="settings-tab-discord" tabindex="0" hidden>
+
+      </section>
+      <section class="settings-tabpanel" id="settings-mood" role="tabpanel" aria-labelledby="settings-tab-mood" tabindex="0" hidden>
+<section class="mood-settings" aria-label="Liquid Mood">
   <label class="preference" for="liquid-mood-enabled"><svg><use href="#i-glass"/></svg><span>Liquid Mood</span><input id="liquid-mood-enabled" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
   <p class="island-hint">Короткий вопрос о настроении при запуске и мягкая подборка: фото котов и собак, смешные мемы или спокойная музыка. Картинки берутся только из локальных папок, ничего не скачивается, и показываются по одной — только после вашего выбора.</p>
   <p class="island-hint">Положите свои изображения (JPG, PNG, WebP, GIF) в папки <b>cats</b>, <b>dogs</b> и <b>memes</b> внутри <b>assets\liquid-mood</b>.</p>
   <div class="mood-settings-actions"><button type="button" id="liquid-mood-show" disabled>Показать сейчас</button></div>
-</section><p class="settings-note">Num-клавиши работают при включённом Num Lock. Выберите «Не назначена», чтобы отключить действие.</p><p id="settings-error" class="settings-error" role="alert" hidden></p><button id="save-shortcuts" class="save-button">Сохранить настройки</button><div class="settings-bottom"><button id="reset-shortcuts">Сбросить клавиши</button><button id="quit-button">Завершить работу</button></div></div>
+</section>
+      </section>
+    </div>
+    <div class="settings-footer"><p id="settings-error" class="settings-error" role="alert" hidden></p><button id="save-shortcuts" class="save-button">Сохранить настройки</button><div class="settings-bottom"><button id="quit-button">Завершить работу</button></div></div>
+  </div>
 </dialog>
 <script src="liquid-glass.js"></script>
 <script src="app.js"></script>

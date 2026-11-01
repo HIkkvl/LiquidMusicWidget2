@@ -73,7 +73,8 @@
     section.append(title, hint, list);
     const anchor = (document.getElementById('island-themes') || {}).closest && document.getElementById('island-themes').closest('.island-theme')
       || panel.querySelector('.settings-note') || panel.querySelector('#save-shortcuts');
-    if (anchor) anchor.before(section); else panel.append(section);
+    const appearance = document.getElementById('settings-appearance');
+    if (appearance) appearance.prepend(section); else if (anchor) anchor.before(section); else panel.append(section);
     list.addEventListener('click', event => { const button = event.target.closest('.swatch'); if (button) choose(button.dataset.design); });
     els = {list};
     paint();

@@ -62,7 +62,8 @@
     extra.append(idLabel, idHint, artwork, paused);
     section.append(title, enabled, hint, extra, status);
     const anchor = panel.querySelector('.settings-note') || panel.querySelector('#settings-error') || panel.querySelector('#save-shortcuts');
-    if (anchor) anchor.before(section); else panel.append(section);
+    const discord = document.getElementById('settings-discord');
+    if (discord) discord.append(section); else if (anchor) anchor.before(section); else panel.append(section);
     els = {section, enabled: enabled.querySelector('input'), id: input, artwork: artwork.querySelector('input'), paused: paused.querySelector('input'), status};
     enabled.querySelector('input').addEventListener('change', () => commit());
     artwork.querySelector('input').addEventListener('change', () => commit());

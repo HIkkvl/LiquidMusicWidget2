@@ -79,15 +79,30 @@ function updateShortcuts() {
   $('like-button').title='Лайк / убрать лайк · '+shortcutLabel(configuration.bindings.like);
   $('voice-button').title='Голосовая команда · '+shortcutLabel(configuration.bindings.voice || {key:''});
 }
-function showSettings() {
+let settingsTab='controls';
+function selectSettingsTab(name,focus=false) {
+  const tab=document.querySelector('[data-settings-tab="'+name+'"]');if(!tab)return;
+  settingsTab=name;
+  document.querySelectorAll('[data-settings-tab]').forEach(button=>{
+    const selected=button===tab;
+    button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;
+    $(button.getAttribute('aria-controls')).hidden=!selected;
+  });
+  document.querySelector('.settings-pages').scrollTop=0;
+  if(focus)tab.focus();
+}
+function showSettings(tab) {
   if(!configuration){toast('Подождите, настройки загружаются');return;}
   editing=clone(configuration.bindings);
   editingOverlay=clone(configuration.overlay || defaultOverlay);
   editingWheel=clone(configuration.wheel || defaultWheel);
   renderShortcutRows();
+  if(configuration.backend==='csharp'){renderBrowserSettings();renderAssistantSettings();}
+  renderOverlaySettings();
   wireWheelSettings();
+  selectSettingsTab(typeof tab==='string'?tab:settingsTab);
   $('settings-error').hidden=true;
-  if(configuration.hotkey_error) showSettingsError(configuration.hotkey_error);
+  if(configuration.hotkey_error){selectSettingsTab('controls');showSettingsError(configuration.hotkey_error);}
   $('settings-dialog').showModal();
 }
 function showSettingsError(message) {
@@ -96,8 +111,6 @@ function showSettingsError(message) {
 }
 function renderShortcutRows() {
   $('shortcut-rows').replaceChildren();
-  if(configuration.backend==='csharp'){renderBrowserSettings();renderAssistantSettings();}
-  renderOverlaySettings();
   Object.entries(configuration.actions).forEach(([action,label])=>{
     const row=document.createElement('div');row.className='shortcut-row';
     const name=document.createElement('label');name.className='shortcut-label';name.textContent=label;name.htmlFor='key-'+action;
@@ -152,7 +165,7 @@ function renderAssistantSettings() {
   test.addEventListener('click',()=>update('test_deepseek'));
   remove.addEventListener('click',()=>update('delete_deepseek'));
   provider.addEventListener('change',()=>update('set_assistant_provider',provider.value));
-  section.append(title,note,provider,enabledLabel,key,audioLabel,audioNote,hintsLabel,status,save,test,remove);$('shortcut-rows').append(section);paint();
+  section.append(title,note,provider,enabledLabel,key,audioLabel,audioNote,hintsLabel,status,save,test,remove);$('assistant-settings-content').replaceChildren(section);paint();
 }
 function renderBrowserSettings() {
   const section=document.createElement('section');section.className='overlay-options';
@@ -187,7 +200,7 @@ function renderBrowserSettings() {
   });
   regionLabel.append(region);
   const regionNote=document.createElement('p');regionNote.textContent='Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
-  section.append(title,state,note,regionLabel,regionNote,persist,button);$('shortcut-rows').append(section);
+  section.append(title,state,note,regionLabel,regionNote,persist,button);$('browser-settings-content').replaceChildren(section);
   renderBrowserConnection(configuration.browser);
 }
 function renderBrowserConnection(browser) {
@@ -204,7 +217,7 @@ function renderBrowserConnection(browser) {
 function renderOverlaySettings() {
   const section=document.createElement('section');section.className='overlay-options';
   section.innerHTML='<h3>Уведомления поверх игры</h3><label class="overlay-enabled"><input id="overlay-enabled" type="checkbox"> Показывать при скипе, лайке и паузе</label><div class="overlay-selects"><label>Угол экрана<select id="overlay-corner"><option value="top-right">Справа сверху</option><option value="top-left">Слева сверху</option><option value="bottom-right">Справа снизу</option><option value="bottom-left">Слева снизу</option></select></label><label>Время показа<select id="overlay-duration"><option value="3">3 секунды</option><option value="4">4 секунды</option><option value="6">6 секунд</option><option value="8">8 секунд</option></select></label></div><button id="overlay-preview" type="button">Проверить уведомление</button><p>Не забирает фокус и пропускает клики. Для игр используйте оконный или безрамочный режим.</p>';
-  $('shortcut-rows').append(section);
+  $('overlay-settings-content').replaceChildren(section);
   $('overlay-enabled').checked=editingOverlay.enabled;
   $('overlay-corner').value=editingOverlay.corner;
   $('overlay-duration').value=String(editingOverlay.duration);
@@ -248,7 +261,7 @@ async function saveShortcuts() {
     const result=await invoke('save_settings',editing,editingOverlay,editingWheel);
     if(!result.ok){showSettingsError(result.error);return;}
     configuration.bindings=clone(editing);configuration.overlay=clone(editingOverlay);configuration.wheel=clone(editingWheel);configuration.hotkey_error='';
-    updateShortcuts();$('settings-dialog').close();toast('Горячие клавиши сохранены');
+    updateShortcuts();$('settings-dialog').close();toast('Настройки сохранены');
   } finally {button.disabled=false;}
 }
 const formatTime=value=>{value=Math.max(0,Math.floor(Number(value)||0));return Math.floor(value/60)+':'+String(value%60).padStart(2,'0');};
@@ -428,8 +441,17 @@ async function connect() {
   });
 }
 $('refresh-waves').addEventListener('click',refreshWaves);
-$('settings-button').addEventListener('click',showSettings);
-$('keys-button').addEventListener('click',showSettings);
+$('settings-button').addEventListener('click',()=>showSettings());
+$('keys-button').addEventListener('click',()=>showSettings('controls'));
+document.querySelectorAll('[data-settings-tab]').forEach(tab=>{
+  tab.addEventListener('click',()=>selectSettingsTab(tab.dataset.settingsTab));
+  tab.addEventListener('keydown',event=>{
+    const tabs=[...document.querySelectorAll('[data-settings-tab]')];
+    const index=tabs.indexOf(tab);
+    const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:-1;
+    if(next<0)return;event.preventDefault();selectSettingsTab(tabs[next].dataset.settingsTab,true);
+  });
+});
 document.querySelectorAll('.service-tab').forEach(t=>t.addEventListener('click',()=>switchService(t.dataset.service)));
 $('dismiss-settings').addEventListener('click',()=>$('settings-dialog').close());
 $('settings-dialog').addEventListener('click',event=>{if(event.target===$('settings-dialog'))$('settings-dialog').close();});

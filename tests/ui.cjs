@@ -31,7 +31,7 @@ const {pathToFileURL} = require('node:url');
        window.browserStatus={name:'Brave',supported:true,configured:true,connected:true,state:'connected',message:'Подключено',shortcuts_updated:persist};
        return {ok:true,browser:window.browserStatus};
      },
-     save_settings:async(b)=>{window.saved=b;return {ok:true};},
+     save_settings:async(b,o,w)=>{window.saved=b;window.savedOverlay=o;window.savedWheel=w;return {ok:true};},
      set_yandex_domain:async(domain)=>{window.yandexDomain=domain;return {ok:true};},
      set_assistant_provider:async(provider)=>{window.assistantProvider=provider;return {ok:true,deepseek:{provider,enabled:false,configured:false}};},
      save_deepseek:async(key,enabled,audio,hints)=>{window.assistantKey=key;window.assistantEnabled=enabled;window.audioEnabled=audio;window.artistHints=hints;return {ok:true,deepseek:{provider:window.assistantProvider,enabled,configured:true,model:'gemini-3.5-flash-lite',audio_enabled:audio,artist_hints:hints}};},
@@ -88,15 +88,38 @@ const {pathToFileURL} = require('node:url');
  assert.equal(await page.locator('#design-settings').count(),1);
  assert.equal(await page.locator('#discord-settings').count(),1);
  assert.equal(await page.locator('#settings-dialog #fx-anim').count(),1);
+ assert.equal(await page.locator('[data-settings-tab]').count(),7);
+ assert.equal(await page.locator('.settings-tabpanel:visible').count(),1);
+ assert.ok(await page.locator('#settings-controls').isVisible());
+ await page.locator('#key-next').selectOption('F8');
+ await page.locator('#wheel-modifier').selectOption('alt');
+ for(const name of ['appearance','browser','assistant','island','discord','mood']){
+   await page.locator('[data-settings-tab='+name+']').click();
+   assert.ok(await page.locator('#settings-'+name).isVisible());
+   assert.equal(await page.locator('.settings-tabpanel:visible').count(),1);
+ }
+ await page.locator('[data-settings-tab=mood]').press('Home');
+ assert.ok(await page.locator('#settings-controls').isVisible());
+ assert.equal(await page.locator('#key-next').inputValue(),'F8','Hotkey draft survives switching tabs');
+ assert.equal(await page.locator('#wheel-modifier').inputValue(),'alt','Wheel draft survives switching tabs');
+ await page.locator('[data-settings-tab=controls]').press('End');
+ assert.ok(await page.locator('#settings-mood').isVisible());
+ await page.locator('[data-settings-tab=mood]').press('ArrowRight');
+ assert.ok(await page.locator('#settings-controls').isVisible());
+ await page.locator('[data-settings-tab=appearance]').click();
  await page.locator('#design-settings [data-design=abyss]').click();
  await page.waitForFunction(()=>document.body.dataset.design==='abyss');
  await page.locator('#design-settings [data-design=aurora]').click();
  await page.waitForFunction(()=>document.body.dataset.design==='aurora');
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  assert.equal(await page.locator('.shortcut-row').count(),7);
+ await page.locator('[data-settings-tab=assistant]').click();
  assert.equal(await page.locator('#deepseek-key').getAttribute('type'),'password');
  assert.equal(await page.locator('#gemini-audio').isChecked(),false,'Cloud audio is opt-in');
  await page.locator('#deepseek-key').fill('unsaved-key');
+ await page.locator('[data-settings-tab=browser]').click();
+ await page.locator('[data-settings-tab=assistant]').click();
+ assert.equal(await page.locator('#deepseek-key').inputValue(),'unsaved-key','Assistant draft survives switching tabs');
  await page.locator('#assistant-provider').selectOption('gemini');
  await page.waitForFunction(()=>window.assistantProvider==='gemini');
  assert.equal(await page.locator('#deepseek-key').inputValue(),'','Provider switch clears unsaved key');
@@ -115,6 +138,7 @@ const {pathToFileURL} = require('node:url');
  await page.waitForFunction(()=>document.getElementById('deepseek-status').textContent.includes('проверено'));
  await page.locator('#delete-deepseek').click();
  await page.waitForFunction(()=>document.getElementById('deepseek-status').textContent==='Ключ не настроен');
+ await page.locator('[data-settings-tab=browser]').click();
  assert.equal(await page.locator('#yandex-domain').inputValue(),'auto');
  await page.locator('#yandex-domain').selectOption('music.yandex.ru');
  await page.waitForFunction(()=>window.yandexDomain==='music.yandex.ru');
@@ -133,11 +157,12 @@ const {pathToFileURL} = require('node:url');
  assert.equal(await page.locator('#browser-status').textContent(),'Подключено');
  assert.equal(await page.locator('#connect-browser').textContent(),'Подключено');
  assert.equal(await page.locator('#connect-browser').isDisabled(),true);
- await page.locator('#key-next').selectOption('F8');
  await page.locator('#save-shortcuts').click();
  assert.equal(await page.evaluate(()=>window.saved.next.key),'F8');
+ assert.equal(await page.evaluate(()=>window.savedWheel.modifier),'alt','Global save includes changes from another tab');
  assert.equal(await page.locator('#settings-dialog').evaluate(el=>el.open),false);
  await page.locator('#keys-button').click();
+ assert.ok(await page.locator('#settings-controls').isVisible(),'Hotkey button opens the control tab');
  assert.equal(await page.locator('#browser-status').textContent(),'Подключено','Connected status survives reopening settings');
  assert.equal(await page.locator('#yandex-domain').inputValue(),'music.yandex.kz','Regional choice survives reopening settings');
  assert.equal(await page.locator('#assistant-provider').inputValue(),'gemini','Assistant provider survives reopening settings');
@@ -151,7 +176,15 @@ const {pathToFileURL} = require('node:url');
  await page.locator('#save-shortcuts').scrollIntoViewIfNeeded();
  const saveBounds=await page.locator('#save-shortcuts').boundingBox();
  assert.ok(saveBounds.y>=0 && saveBounds.y+saveBounds.height<=600,'Save remains reachable on short screens');
+ for(const name of ['controls','appearance','browser','assistant','island','discord','mood']){
+   await page.locator('[data-settings-tab='+name+']').click();
+   const bounds=await page.locator('#save-shortcuts').boundingBox();
+   assert.ok(bounds.y>=0&&bounds.y+bounds.height<=600,'Save remains visible on '+name);
+   const nav=await page.locator('.settings-tabs').boundingBox();
+   assert.ok(nav.x>=0&&nav.x+nav.width<=350,'Tabs fit the narrow window');
+ }
+ await page.screenshot({path:'tests/settings-tabs-preview.png'});
  assert.deepEqual(errors,[]);
  await browser.close();
- console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, settings save, narrow/short viewport, no JS errors');
+ console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, 7 settings tabs, keyboard navigation, drafts across tabs, settings save, narrow/short viewport, no JS errors');
 })().catch(e=>{console.error(e);process.exit(1);});

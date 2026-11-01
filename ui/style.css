@@ -284,10 +284,23 @@ dialog#settings-dialog{
 }
 dialog#settings-dialog::backdrop{background:rgba(4,8,20,.42);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .settings-panel{
-  border-radius:var(--radius-l);padding:18px 18px 14px;max-height:calc(100vh - 56px);overflow-y:auto;
+  border-radius:var(--radius-l);padding:18px 18px 14px;height:min(820px,calc(100vh - 56px));overflow:hidden;
   display:flex;flex-direction:column;gap:12px;
+}
+.settings-heading,.settings-tabs,.settings-footer{flex-shrink:0}
+.settings-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:5px;border-radius:16px;background:rgba(0,0,0,.16)}
+.settings-tab{flex:1 1 auto;padding:8px 10px;border:0;border-radius:11px;font-size:12px;white-space:nowrap;color:var(--text-2);background:transparent}
+.settings-tab:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.settings-tab[aria-selected="true"]{color:var(--text);background:linear-gradient(120deg,color-mix(in srgb,var(--blue) 30%,transparent),color-mix(in srgb,var(--indigo) 32%,transparent));box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+.settings-pages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 3px 8px;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.3) transparent;
 }
+.settings-tabpanel{display:flex;flex-direction:column;gap:12px;outline:none}
+.settings-tabpanel[hidden]{display:none}
+.settings-footer{display:flex;flex-direction:column;gap:10px}
+.settings-footer .settings-error{max-height:76px;overflow-y:auto}
+.settings-section-title{margin:0;font-size:13px;font-weight:600}
+.settings-reset{align-self:flex-start}
 .settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .settings-heading h2{font-size:19px;margin:2px 0 0}
 .eyebrow{font-size:10.5px;letter-spacing:1.6px;color:var(--text-3);text-transform:uppercase}
@@ -357,12 +370,12 @@ select{
 .save-button:active{transform:scale(.97)}
 .save-button:disabled{opacity:.5}
 .settings-bottom{display:flex;justify-content:space-between;gap:10px}
-.settings-bottom button{
+.settings-bottom button,.settings-reset{
   padding:9px 14px;border-radius:13px;border:1px solid var(--stroke);
   background:rgba(255,255,255,.06);font-size:12.5px;color:var(--text-2);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.14);transition:background .2s,color .2s;
 }
-.settings-bottom button:hover{background:rgba(255,255,255,.13);color:var(--text)}
+.settings-bottom button:hover,.settings-reset:hover{background:rgba(255,255,255,.13);color:var(--text)}
 
 #overlay-preview{
   align-self:flex-start;padding:8px 14px;border-radius:12px;border:1px solid var(--stroke);
