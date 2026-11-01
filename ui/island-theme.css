@@ -1,0 +1,22 @@
+/* Настройка «Цвета острова» в диалоге настроек */
+.island-theme{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--radius-s);
+  background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.island-theme h3{margin:0;font-size:13px;font-weight:600;color:var(--text)}
+.theme-swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.swatch{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 4px 7px;border-radius:12px;
+  border:1px solid var(--stroke);background:rgba(255,255,255,.05);color:var(--text-2);font-size:11px;
+  transition:background .2s,border-color .2s,box-shadow .2s,transform .25s var(--spring)}
+.swatch i{display:block;width:100%;height:22px;border-radius:8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 0 0 .5px rgba(255,255,255,.22)}
+.swatch:hover{background:rgba(255,255,255,.12);transform:translateY(-1px)}
+.swatch.active{border-color:rgba(255,255,255,.6);color:var(--text);background:rgba(255,255,255,.12);
+  box-shadow:0 0 14px rgba(255,255,255,.2),inset 0 1px 0 rgba(255,255,255,.3)}
+.theme-custom{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.theme-custom[hidden]{display:none}
+.theme-custom label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--text-2)}
+.theme-custom input[type=color]{width:100%;height:32px;padding:0;border:1px solid var(--stroke);border-radius:9px;
+  background:none;cursor:pointer}
+.theme-actions{display:flex;align-items:center;gap:10px}
+.theme-actions button{padding:7px 12px;border-radius:10px;border:1px solid var(--stroke);background:rgba(255,255,255,.06);
+  font-size:12px;color:var(--text-2);transition:background .2s,color .2s}
+.theme-actions button:hover{background:rgba(255,255,255,.14);color:var(--text)}

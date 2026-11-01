@@ -12,6 +12,7 @@ static class Program
         Application.ThreadException += (_, e) => AppPaths.Log(e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => AppPaths.Log(e.ExceptionObject);
         if (args.Contains("--self-test")) { Environment.ExitCode = SelfTests.Run(); return; }
+        if (args.Contains("--connection-test")) { Environment.ExitCode = BrowserConnectionTests.RunAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--browser-test")) { Environment.ExitCode = SelfTests.BrowserAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--live-test")) { Environment.ExitCode = SelfTests.LiveAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--diagnose-browser"))

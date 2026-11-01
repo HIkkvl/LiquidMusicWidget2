@@ -14,16 +14,17 @@ internal static class BrowserShortcuts
         var clean=Regex.Replace(original,@"(?:^|\s)--remote-debugging-(?:address|port)(?:=(?:""[^""]*""|\S+)|\s+\S+)?","",RegexOptions.IgnoreCase).Trim();
         return (clean+" --remote-debugging-address=127.0.0.1 --remote-debugging-port="+port).Trim();
     }
-    public static bool Update(DefaultBrowserInfo info,int port)
+    public static bool Update(DefaultBrowserInfo info,int port,string? userDataDir=null)
     {
         bool result=false;Exception? error=null;
-        var worker=new Thread(()=>{try{result=UpdateCore(info,port);}catch(Exception e){error=e;}}){IsBackground=true};
+        var worker=new Thread(()=>{try{result=UpdateCore(info,port,userDataDir);}catch(Exception e){error=e;}}){IsBackground=true};
         worker.SetApartmentState(ApartmentState.STA);worker.Start();worker.Join();
         if(error!=null)throw new InvalidOperationException("Браузер подключён, но не удалось сохранить его ярлыки: "+error.Message,error);
         return result;
     }
-    private static bool UpdateCore(DefaultBrowserInfo info,int port)
+    private static bool UpdateCore(DefaultBrowserInfo info,int port,string? userDataDir)
     {
+        if(userDataDir!=null)return UpdateMusicShortcut(info,port,userDataDir);
         var backupRoot=Path.Combine(AppPaths.Data,"browser-shortcut-backups");Directory.CreateDirectory(backupRoot);
         var manifestFile=Path.Combine(backupRoot,"manifest.json");
         var backups=File.Exists(manifestFile)?JsonSerializer.Deserialize<Dictionary<string,string>>(File.ReadAllText(manifestFile))??new():new Dictionary<string,string>();
@@ -72,5 +73,27 @@ internal static class BrowserShortcuts
         }
         finally{Marshal.FinalReleaseComObject(shell);}
         return updated>0;
+    }
+    private static bool UpdateMusicShortcut(DefaultBrowserInfo info,int port,string userDataDir)
+    {
+        var programs=Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+        Directory.CreateDirectory(programs);
+        var shellType=Type.GetTypeFromProgID("WScript.Shell")??throw new InvalidOperationException("Недоступно создание ярлыков Windows");
+        dynamic shell=Activator.CreateInstance(shellType)!;
+        dynamic? shortcut=null;
+        try
+        {
+            shortcut=shell.CreateShortcut(Path.Combine(programs,info.Name+" — Liquid Music.lnk"));
+            shortcut.TargetPath=info.Executable;
+            shortcut.WorkingDirectory=Path.GetDirectoryName(info.Executable);
+            shortcut.IconLocation=info.Executable+",0";
+            shortcut.Arguments=WithControlArguments("--user-data-dir=\""+userDataDir+"\" --restore-last-session",port);
+            shortcut.Save();return true;
+        }
+        finally
+        {
+            if(shortcut!=null)Marshal.FinalReleaseComObject(shortcut);
+            Marshal.FinalReleaseComObject(shell);
+        }
     }
 }

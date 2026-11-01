@@ -9,7 +9,7 @@ using Microsoft.Win32;
 namespace LiquidMusic;
 
 internal sealed record DefaultBrowserInfo(string Name,string Executable,string ProcessName,bool Supported,string Error="");
-internal sealed record BrowserConnection(string Executable,string Name,int Port,bool Configured,bool ShortcutsUpdated=false);
+internal sealed record BrowserConnection(string Executable,string Name,int Port,bool Configured,bool ShortcutsUpdated=false,string? UserDataDir=null);
 
 internal static class BrowserSetup
 {
@@ -78,14 +78,15 @@ internal static class BrowserSetup
         try{return SameExecutable(process.MainModule?.FileName??"",info.Executable);}catch{return false;}
     }
     public static bool IsRunning(DefaultBrowserInfo info)=>Process.GetProcessesByName(info.ProcessName).Any(process=>Matches(process,info));
-    private static async Task<bool> EndpointReadyAsync(int port)
+    internal static async Task<bool> EndpointReadyAsync(int port)
     {
         try
         {
-            using var http=new HttpClient{Timeout=TimeSpan.FromMilliseconds(800)};
+            using var http=new HttpClient(new HttpClientHandler{UseProxy=false}){Timeout=TimeSpan.FromMilliseconds(800)};
             var info=JsonNode.Parse(await http.GetStringAsync($"http://127.0.0.1:{port}/json/version"));
             var endpoint=info?["webSocketDebuggerUrl"]?.GetValue<string>();
-            return Uri.TryCreate(endpoint,UriKind.Absolute,out var uri)&&uri.Scheme=="ws"&&IPAddress.TryParse(uri.Host,out var address)&&IPAddress.IsLoopback(address);
+            return Uri.TryCreate(endpoint,UriKind.Absolute,out var uri)&&uri.Scheme=="ws"&&uri.Port==port&&
+                (uri.Host.Equals("localhost",StringComparison.OrdinalIgnoreCase)||IPAddress.TryParse(uri.Host,out var address)&&IPAddress.IsLoopback(address));
         }
         catch{return false;}
     }
@@ -100,7 +101,15 @@ internal static class BrowserSetup
             var saved=Read(info);
             if(saved!=null&&await EndpointReadyAsync(saved.Port))
             {
-                if(updateShortcuts&&!saved.ShortcutsUpdated)saved=saved with{ShortcutsUpdated=BrowserShortcuts.Update(info,saved.Port)};
+                if(updateShortcuts&&!saved.ShortcutsUpdated)saved=saved with{ShortcutsUpdated=BrowserShortcuts.Update(info,saved.Port,saved.UserDataDir)};
+                Save(saved);return saved;
+            }
+            // An isolated music profile can start alongside the user's regular
+            // browser. Do not close unrelated windows when restoring it.
+            if(saved?.UserDataDir!=null)
+            {
+                await LaunchAsync(info,saved,!restart);
+                if(updateShortcuts&&!saved.ShortcutsUpdated)saved=saved with{ShortcutsUpdated=BrowserShortcuts.Update(info,saved.Port,saved.UserDataDir)};
                 Save(saved);return saved;
             }
             var processes=Process.GetProcessesByName(info.ProcessName).Where(process=>Matches(process,info)).ToArray();
@@ -113,22 +122,44 @@ internal static class BrowserSetup
             var port=saved?.Port??0;
             if(port<=0){var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();port=((IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();}
             var connection=new BrowserConnection(info.Executable,info.Name,port,true,saved?.ShortcutsUpdated??false);
-            await LaunchAsync(info,connection,!restart);
-            if(updateShortcuts&&!connection.ShortcutsUpdated)connection=connection with{ShortcutsUpdated=BrowserShortcuts.Update(info,port)};
+            connection=await LaunchWithFallbackAsync(info,connection,!restart,LaunchAsync);
+            // Keep a working connection even if Windows rejects shortcut edits.
+            Save(connection);
+            if(updateShortcuts&&!connection.ShortcutsUpdated)connection=connection with{ShortcutsUpdated=BrowserShortcuts.Update(info,port,connection.UserDataDir)};
             Save(connection);return connection;
         }
         finally{Configuring=false;}
     }
+    internal static async Task<BrowserConnection> LaunchWithFallbackAsync(DefaultBrowserInfo info,BrowserConnection connection,bool background,Func<DefaultBrowserInfo,BrowserConnection,bool,Task> launch)
+    {
+        try{await launch(info,connection,background);}
+        catch(TimeoutException) when(info.ProcessName=="browser"&&connection.UserDataDir==null)
+        {
+            // New Chromium builds may reject CDP for their default profile.
+            // Use an empty, persistent profile rather than copying accounts
+            // or disabling browser security features.
+            connection=connection with{UserDataDir=Path.Combine(AppPaths.Data,"browser-profiles","yandex"),ShortcutsUpdated=false};
+            await launch(info,connection,false);
+        }
+        return connection;
+    }
     public static async Task LaunchAsync(DefaultBrowserInfo info,BrowserConnection connection,bool background)
     {
+        if(await EndpointReadyAsync(connection.Port))return;
         var start=new ProcessStartInfo(info.Executable){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Minimized};
         start.ArgumentList.Add("--remote-debugging-address=127.0.0.1");
         start.ArgumentList.Add("--remote-debugging-port="+connection.Port);
+        if(connection.UserDataDir!=null)
+        {
+            Directory.CreateDirectory(connection.UserDataDir);
+            start.ArgumentList.Add("--user-data-dir="+connection.UserDataDir);
+        }
         start.ArgumentList.Add("--restore-last-session");
         if(background)start.ArgumentList.Add("--no-startup-window");
-        Process.Start(start);
+        using var process=Process.Start(start)??throw new InvalidOperationException("Не удалось запустить "+info.Name+".");
         var until=DateTime.UtcNow.AddSeconds(18);
         while(DateTime.UtcNow<until){if(await EndpointReadyAsync(connection.Port))return;await Task.Delay(300);}
-        throw new InvalidOperationException(info.Name+" не разрешил подключение к текущему профилю. В некоторых версиях Chrome/Edge нужен отдельный профиль. Подключение не сохранено; профиль и защита не изменялись.");
+        var profile=connection.UserDataDir==null?"обычного профиля":"отдельного музыкального профиля";
+        throw new TimeoutException($"{info.Name}: канал управления {profile} на 127.0.0.1:{connection.Port} не ответил. Проверьте, что браузер запустился. Если удалённая отладка запрещена администратором, обратитесь к нему. Повторите подключение в настройках.");
     }
 }

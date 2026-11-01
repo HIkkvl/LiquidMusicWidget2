@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Liquid Music Island</title>
+<!-- Окно острова: C# (IslandWindow.cs) держит эту страницу НЕПОДВИЖНОЙ «сценой» 340×120 у края экрана,
+     а само окно-маска плавно меняет размер, положение и скругление (пружина). Каждый кадр C# присылает форму
+     сообщением "S:x,y,w,h,r" (css px сцены) — по ней стекло рисуется ровно в контуре окна.
+     Режимы: data-mode = hidden | compact | expanded, край: data-side = top | bottom | left | right.
+     Цвета: renderDrop(state).theme -> палитра авроры + CSS-переменные --p0..--p5 (от тёмного к светлому). -->
+<style>
+  :root { --p0: 43 10 28; --p1: 120 33 133; --p2: 199 84 178; --p3: 255 115 133; --p4: 255 173 209; --p5: 255 227 237;
+          --spring: cubic-bezier(.34, 1.56, .64, 1); }
+  html { font-size: 10px; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; user-select: none; background: #000; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: #fff; cursor: default;
+         position: relative; }
+  /* страница = окно: сцена 34rem × 12rem (#stage) + небольшой запас к краю экрана. Форму острова (#shape) C# задаёт в координатах окна.
+     Пилюля лежит у края сцены, который выбран в настройках. */
+  body[data-side=top]    { --px: 10.7rem; --py: 0rem; }
+  body[data-side=bottom] { --px: 10.7rem; --py: 8.6rem; }
+  body[data-side=left]   { --px: 0rem;    --py: 4.3rem; }
+  body[data-side=right]  { --px: 21.4rem; --py: 4.3rem; }
+
+  #lg-canvas { display: none; position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  body.lg-on #lg-canvas { display: block; }
+
+  /* живой контур окна: C# меняет left/top/width/height/border-radius на каждом кадре.
+     Без шейдера (низкое качество) это обычное цветное стекло, с шейдером — только мерка для движка. */
+  #shape { position: absolute; left: 0; top: 0; width: 0; height: 0; border-radius: 0; z-index: 1; pointer-events: none;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at 25% -40%, rgb(var(--p3) / .42), transparent 62%),
+      radial-gradient(ellipse at 95% 140%, rgb(var(--p2) / .32), transparent 60%),
+      linear-gradient(165deg, rgb(var(--p1) / .96), rgb(var(--p0) / .98) 70%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 0 0 .5px rgba(255,255,255,.16), inset 0 -10px 18px rgba(0,0,0,.35); }
+  #shape::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.2px; pointer-events: none;
+    background: conic-gradient(from 200deg, rgba(255,255,255,.78), rgb(var(--p4) / .5), rgb(var(--p3) / .45), rgba(255,255,255,.10) 50%, rgba(255,255,255,.72));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; }
+  body.lg-on #shape { background: none; box-shadow: none; }
+  body.lg-on #shape::before { display: none; }
+
+  /* ---- содержимое: плавные появление/исчезновение, пружинный масштаб ---- */
+  /* содержимое стоит на месте и только проявляется: никаких масштабов и сдвигов, поэтому обложка не «плывёт» */
+  #stage { position: absolute; left: 0; top: 0; width: 34rem; height: 12rem; z-index: 2; pointer-events: none; }
+  .mini, .card { position: absolute; box-sizing: border-box; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+  .mini { left: var(--px); top: var(--py); width: 12.6rem; height: 3.4rem; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 1.1rem; }
+  .card { inset: 0; padding: 1.1rem 1.8rem; display: flex; flex-direction: column; }
+  body[data-mode=compact] .mini { opacity: 1; transition: opacity .22s ease .1s; }
+  body[data-mode=expanded] .card { opacity: 1; pointer-events: auto; transition: opacity .24s ease .12s; }
+  body.lg-on .title, body.lg-on .artist { text-shadow: 0 1px 6px rgba(20,0,16,.7); }
+
+  .top { display: flex; align-items: center; gap: 1.2rem; height: 4.4rem; flex: none; position: relative; z-index: 1; }
+  /* обложка-линза: три слоя R/G/B с разным масштабом = хроматическая дисперсия к краям */
+  .lens { flex: none; position: relative; overflow: hidden; background: #000; isolation: isolate; }
+  .mini .lens { width: 2.2rem; height: 2.2rem; border-radius: .8rem; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .card .lens { width: 4.4rem; height: 4.4rem; border-radius: 1.3rem; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+  .lens .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; mix-blend-mode: screen; }
+  .lens .cover.r { filter: url(#only-r); }
+  .lens .cover.g { filter: url(#only-g); transform: scale(1.04); }
+  .lens .cover.b { filter: url(#only-b); transform: scale(1.08); }
+  .lens .gloss { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2;
+    background: radial-gradient(ellipse at 28% 8%, rgba(255,255,255,.42), transparent 46%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 0 0 .5px rgba(255,255,255,.22),
+      inset 0 -9px 12px rgba(0,0,0,.30), inset 1.2px 0 2px rgba(255,80,120,.38), inset -1.2px 0 2px rgba(80,160,255,.45); }
+  body[data-quality=low] .lens .cover.g, body[data-quality=low] .lens .cover.b { display: none; }
+  body[data-quality=low] .lens .cover.r { filter: none; mix-blend-mode: normal; }
+  body[data-quality=low] .lens .gloss { background: none; }
+
+  .text { flex: 1; min-width: 0; }
+  .title { font-size: 1.5rem; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .artist { margin-top: .2rem; font-size: 1.2rem; color: rgba(245,240,255,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .bar { margin: .9rem 0; height: .4rem; flex: none; border-radius: .2rem; background: rgba(255,255,255,.16);
+         box-shadow: inset 0 1px 2px rgba(0,0,0,.4); overflow: hidden; position: relative; z-index: 1; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: inherit;
+           background: linear-gradient(90deg, rgb(var(--p4)), rgb(var(--p3)), rgb(var(--p2)));
+           box-shadow: 0 0 10px rgb(var(--p3) / .6); }
+
+  .controls { height: 3.2rem; flex: none; display: flex; align-items: center; justify-content: center; gap: 1.6rem; position: relative; z-index: 1; }
+  .btn { all: unset; box-sizing: border-box; width: 3rem; height: 3rem; border-radius: 50%; display: grid; place-items: center;
+         cursor: pointer; color: #fff; background: rgba(255,255,255,.10);
+         box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 0 0 .5px rgba(255,255,255,.12);
+         transition: transform .25s var(--spring), background .15s ease; }
+  .btn:hover { background: rgba(255,255,255,.22); transform: scale(1.08); }
+  .btn:active { transform: scale(.88); }
+  .btn.main { width: 3.2rem; height: 3.2rem; color: rgb(var(--p0)); background: linear-gradient(180deg, #ffffff, rgb(var(--p5)));
+         box-shadow: 0 3px 12px rgb(var(--p2) / .5), inset 0 1px 0 rgba(255,255,255,.8); }
+  .btn.main:hover { background: linear-gradient(180deg, #ffffff, rgb(var(--p4))); }
+  .btn svg { width: 1.5rem; height: 1.5rem; fill: currentColor; }
+  .btn .pause { display: none; }
+  body.playing .btn .play { display: none; }
+  body.playing .btn .pause { display: block; }
+
+  .eq { flex: none; display: flex; align-items: flex-end; gap: .3rem; height: 2rem; position: relative; z-index: 1; }
+  .mini .eq { height: 1.6rem; }
+  .eq b { width: .45rem; height: 30%; border-radius: .22rem; background: linear-gradient(180deg, #ffffff, rgb(var(--p4)));
+          box-shadow: 0 0 8px rgb(var(--p4) / .65); }
+  body:not(.playing) .eq b { background: rgba(255,255,255,.4); box-shadow: none; }
+  body.playing .eq b { animation: eq .9s ease-in-out infinite; }
+  body.playing .eq b:nth-child(2) { animation-delay: -.3s; }
+  body.playing .eq b:nth-child(3) { animation-delay: -.6s; }
+  @keyframes eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+</style></head>
+<body data-mode="hidden" data-side="top" data-quality="high">
+<canvas id="lg-canvas" aria-hidden="true"></canvas>
+<div id="shape" data-live-radius="1"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="only-r" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>
+  <filter id="only-g" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>
+  <filter id="only-b" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"/></filter>
+</defs></svg>
+<div id="stage">
+<div class="mini"><div class="lens"><img class="cover r" alt=""><img class="cover g" alt=""><img class="cover b" alt=""><i class="gloss"></i></div><div class="eq"><b></b><b></b><b></b></div></div>
+<div class="card">
+  <div class="top">
+    <div class="lens"><img class="cover r" alt=""><img class="cover g" alt=""><img class="cover b" alt=""><i class="gloss"></i></div>
+    <div class="text"><div class="title" id="title">Ожидаю воспроизведение</div><div class="artist" id="artist"></div></div>
+    <div class="eq"><b></b><b></b><b></b></div>
+  </div>
+  <div class="bar"><i id="progress"></i></div>
+  <div class="controls">
+    <button class="btn" data-c="previous" aria-label="Предыдущий трек" title="Предыдущий трек"><svg viewBox="0 0 24 24"><path d="M18 5v14L8 12z"/><rect x="5" y="5" width="2.6" height="14" rx="1"/></svg></button>
+    <button class="btn" data-c="stop" aria-label="Стоп" title="Стоп"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.2"/></svg></button>
+    <button class="btn main" data-c="play_pause" aria-label="Пауза / продолжить" title="Пауза / продолжить"><svg class="play" viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg><svg class="pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4.2" height="14" rx="1.3"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.3"/></svg></button>
+    <button class="btn" data-c="next" aria-label="Следующий трек" title="Следующий трек"><svg viewBox="0 0 24 24"><path d="M6 5v14l10-7z"/><rect x="16.4" y="5" width="2.6" height="14" rx="1"/></svg></button>
+  </div>
+</div>
+</div>
+<script src="island-palettes.js"></script>
+<script src="liquid-glass.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const covers = [...document.querySelectorAll('.cover')];
+  const LG = window.LiquidGlass, Pal = window.IslandPalettes, shape = $('shape');
+  const STAGE_H = 120, PILL_H = 34;
+  let shapeBevel = 17, shapeStrength = 34, glassTint = [0.04, 0.01, 0.05], glassDark = 0.58, themeSig = '';
+
+  if (LG) LG.mount({
+    canvas: $('lg-canvas'), root: document.body, solid: true, bgAlpha: 0.72, aurora: 0.8, palette: Pal.resolve(Pal.DEFAULT),
+    // один стеклянный элемент — живой контур окна; фаска и толщина стекла растут вместе с формой
+    kinds: [{ selector: '#shape', bevel: () => shapeBevel, strength: () => shapeStrength, dark: () => glassDark, tint: () => glassTint, blur: 2.4 }]
+  });
+
+  // C# присылает форму окна в системе сцены: "S:x,y,w,h,r"
+  const host = window.chrome && window.chrome.webview;
+  if (host) host.addEventListener('message', e => {
+    const d = e.data;
+    if (typeof d !== 'string' || d.charCodeAt(0) !== 83 || d.charCodeAt(1) !== 58) return;
+    const [x, y, w, h, r] = d.slice(2).split(',').map(Number);
+    if (![x, y, w, h, r].every(Number.isFinite)) return;
+    shape.style.left = x + 'px'; shape.style.top = y + 'px';
+    shape.style.width = w + 'px'; shape.style.height = h + 'px'; shape.style.borderRadius = r + 'px';
+    const t = Math.max(0, Math.min(1, (h - PILL_H) / (STAGE_H - PILL_H)));
+    shapeBevel = Math.min(17 + 23 * t, Math.min(w, h) * 0.5);
+    shapeStrength = 34 + 50 * t;
+    if (LG) LG.hurry(220);
+  });
+
+  function applyTheme(theme) {
+    const sig = JSON.stringify(theme || null);
+    if (sig === themeSig) return;
+    themeSig = sig;
+    const palette = Pal.resolve(theme);
+    palette.forEach((color, i) => document.documentElement.style.setProperty('--p' + i, Pal.css(color)));
+    glassTint = palette[0].map(v => Math.min(0.12, v * 0.45));
+    // светлая палитра -> интерьер темнее, чтобы белый текст оставался читаемым
+    const bright = (palette[4][0] + palette[4][1] + palette[4][2]) / 3;
+    glassDark = 0.62 - 0.17 * Math.max(0, Math.min(1, (bright - 0.6) / 0.35));
+    if (LG) { LG.setPalette(palette); if (LG.setLook) LG.setLook(Pal.look(theme)); }
+  }
+
+  let track = { position: 0, duration: 0, playing: false, at: performance.now() }, art = null, hold = 0;
+  covers.forEach(img => { img.onerror = () => { img.style.visibility = 'hidden'; }; });
+  // ox/oy — где в окне лежит сцена (окно шире сцены на запас к краю экрана)
+  window.setSide = (side, ox, oy) => {
+    document.body.dataset.side = side;
+    const stage = $('stage'); stage.style.left = (ox || 0) + 'px'; stage.style.top = (oy || 0) + 'px';
+    if (LG) LG.refresh();
+  };
+  window.setMode = mode => { document.body.dataset.mode = mode; if (LG && mode !== 'hidden') LG.setActive(true); };
+  window.setActive = on => { if (LG) LG.setActive(!!on); };   // C# выключает рисование, когда окно уже спрятано
+  window.setBackdrop = (src, meta) => { if (LG) LG.setBackdrop(src, meta); };
+  window.renderDrop = s => {
+    const offline = s.connected === false;
+    document.body.dataset.quality = s.quality || 'high';
+    applyTheme(s.theme);
+    if (LG) {
+      LG.setQuality(s.glass === false ? 'low' : (s.quality || 'high'));
+      LG.setAnimated(s.anim !== false);
+      LG.setBgAlpha(s.clear ? 0.72 : 1);
+      if (!s.backdrop) LG.clearBackdrop();
+    }
+    $('title').textContent = offline ? 'Нет связи с браузером' : (s.title || 'Ничего не играет');
+    $('artist').textContent = offline ? 'Откройте вкладку с музыкой' : (s.artist || '');
+    if (s.artwork !== art) {
+      art = s.artwork;
+      covers.forEach(img => { img.style.visibility = art ? 'visible' : 'hidden'; if (art) img.src = art; });
+    }
+    const playing = performance.now() < hold ? track.playing : (!!s.playing && !offline);
+    track = { position: +s.position || 0, duration: +s.duration || 0, playing, at: performance.now() };
+    document.body.classList.toggle('playing', playing);
+    paint();
+  };
+  document.querySelectorAll('[data-c]').forEach(button => button.addEventListener('click', () => {
+    const command = button.dataset.c;
+    if (host) host.postMessage({ command });   // C#: IslandWindow.WebMessageReceived
+    if (command === 'play_pause' || command === 'stop') {
+      track.playing = command === 'play_pause' ? !track.playing : false;
+      track.at = performance.now(); hold = performance.now() + 1500;
+      document.body.classList.toggle('playing', track.playing);
+    }
+  }));
+  function paint() {
+    const elapsed = track.playing ? (performance.now() - track.at) / 1000 : 0;
+    const ratio = track.duration > 0 ? Math.min(1, (track.position + elapsed) / track.duration) : 0;
+    $('progress').style.width = (ratio * 100).toFixed(1) + '%';
+  }
+  setInterval(paint, 250);
+</script></body></html>

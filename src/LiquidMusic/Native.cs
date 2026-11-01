@@ -11,6 +11,12 @@ internal static class Native
     [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint window,out uint processId);
     [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] internal static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] internal static extern bool SetWindowDisplayAffinity(nint hwnd, uint affinity);
+    [DllImport("user32.dll")] internal static extern int SetWindowRgn(nint hwnd, nint region, bool redraw);
+    [DllImport("gdi32.dll")] internal static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+    [DllImport("gdi32.dll")] internal static extern bool DeleteObject(nint handle);
+    [DllImport("winmm.dll")] internal static extern uint timeBeginPeriod(uint period);
+    [DllImport("winmm.dll")] internal static extern uint timeEndPeriod(uint period);
     [DllImport("user32.dll")] internal static extern nint SendMessage(nint h, uint m, nint w, nint l);
     [DllImport("user32.dll")] internal static extern nint SetWindowsHookEx(int id, Hook callback, nint module, uint thread);
     [DllImport("user32.dll")] internal static extern bool UnhookWindowsHookEx(nint hook);

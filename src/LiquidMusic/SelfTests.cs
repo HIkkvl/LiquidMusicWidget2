@@ -28,7 +28,10 @@ internal static class SelfTests
             var settings=new Settings(file);settings.Save();
             Check(new Settings(file).Value["bindings"]!["voice"]!["key"]!.GetValue<string>()=="End","Settings migration");
             Check(settings.Service=="youtube","Service preservation");File.Delete(file);
+            Check(settings.Value["liquid_mood"]?["enabled"]?.GetValue<bool>()==false,"Liquid Mood remains opt-in");
             passed.Add("Existing JSON migration and atomic roundtrip");
+            LiquidMoodTests.Run();
+            passed.Add("Liquid Mood local categories, empty folders, image filtering and traversal rejection");
             Check(BrowserController.MatchesService("https://music.yandex.kz/search?text=1","yandex"),"Regional Yandex");
             Check(!BrowserController.MatchesService("https://music.yandex.kz.evil.example/","yandex"),"Domain boundary");
             Check(!BrowserController.MatchesService("http://music.yandex.kz/","yandex"),"HTTPS boundary");
@@ -69,6 +72,12 @@ internal static class SelfTests
             await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=fixture}));
             await page.GotoAsync("https://music.yandex.kz/search?text=Династия");
             var script=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"BrowserScripts.js"));
+            foreach(var domain in new[]{"music.yandex.ru","music.yandex.kz","music.yandex.com"})
+            {
+                await page.GotoAsync("https://"+domain+"/search?text=Династия");
+                Check(await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"}),"Regional track controls: "+domain);
+            }
+            passed.Add("Track controls support ru, kz and com regional domains");
             var target=await page.EvaluateAsync<bool>(script,new{action="search_target",service="yandex",query="Династия"});
             Check(target,"Real Yandex track card play target");
             Check(await page.Locator("[data-liquid-control='search']").EvaluateAsync<bool>("el=>!!el.closest('[class*=EntityCard_root]').querySelector('a[href*=\"/track/\"]')"),"Artist exclusion");

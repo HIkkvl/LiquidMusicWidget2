@@ -129,7 +129,22 @@ function renderBrowserSettings() {
     if(!result.ok&&!result.cancelled)showSettingsError(result.error);
     else if(result.ok&&result.browser?.connected){$('settings-error').hidden=true;toast('Браузер подключён. Настройка сохранена');}
   });
-  section.append(title,state,note,persist,button);$('shortcut-rows').append(section);
+  const regionLabel=document.createElement('label');regionLabel.textContent='Домен Яндекс Музыки';
+  const region=document.createElement('select');region.id='yandex-domain';
+  for(const [value,label] of [['auto','Авто — открытая вкладка / последний домен'],['music.yandex.ru','music.yandex.ru'],['music.yandex.kz','music.yandex.kz'],['music.yandex.com','music.yandex.com']]) {
+    const option=document.createElement('option');option.value=value;option.textContent=label;region.append(option);
+  }
+  region.value=configuration.yandex_domain||'auto';
+  region.addEventListener('change',async()=>{
+    region.disabled=true;
+    const result=await invoke('set_yandex_domain',region.value);
+    region.disabled=false;
+    if(result.ok){configuration.yandex_domain=region.value;toast('Домен Яндекс Музыки сохранён');}
+    else {region.value=configuration.yandex_domain||'auto';showSettingsError(result.error);}
+  });
+  regionLabel.append(region);
+  const regionNote=document.createElement('p');regionNote.textContent='Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
+  section.append(title,state,note,regionLabel,regionNote,persist,button);$('shortcut-rows').append(section);
   renderBrowserConnection(configuration.browser);
 }
 function renderBrowserConnection(browser) {
@@ -179,9 +194,10 @@ async function setQuality(level){
 function switchService(name){
   document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===name));
   document.body.dataset.service=name;
+  applyTheme(name);
   configuration.service=name;
   invoke('set_service',name);
-  toast(name==='youtube'?'YouTube: откройте вкладку YouTube / YouTube Music':'Яндекс Музыка: откройте music.yandex.ru');
+  toast(name==='youtube'?'YouTube: откройте вкладку YouTube / YouTube Music':'Яндекс Музыка: откройте свою вкладку .ru, .kz или .com');
 }
 async function saveShortcuts() {
   const button=$('save-shortcuts');button.disabled=true;
@@ -223,6 +239,7 @@ function renderState(snapshot) {
   $('connection-dot').classList.toggle('online',connected);
   const svcNow=(configuration && configuration.service) || snapshot.service || 'yandex';
   document.body.dataset.service=svcNow;
+  applyTheme(svcNow);
   document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===svcNow));
   const svcShown=snapshot.service||'yandex';
   $('connection-title').textContent=connected?(svcShown==='youtube'?'YouTube подключён':'Яндекс Музыка подключена'):(svcNow==='youtube'?'Откройте YouTube или YouTube Music':'Откройте Яндекс Музыку');
@@ -265,29 +282,56 @@ async function poll() {
   finally{busyPoll=false;}
 }
 /* ---------- жидкое стекло: какие элементы рисует шейдер ---------- */
-const playTint=()=>document.body.dataset.service==='youtube'?[.34,.07,.10]:[.07,.14,.34];
+// тема: подключаем доп. стили (розово-фиолетовые акценты), не трогая style.css
+if(!document.querySelector('link[href$="aurora.css"]')){const l=document.createElement('link');l.rel='stylesheet';l.href='aurora.css';document.head.append(l);}
+const playTint=()=>document.body.dataset.service==='youtube'?[.34,.06,.08]:[.30,.05,.24];
+// палитра авроры (от тёмного к светлому): розово-фиолетовая и красная для YouTube
+const PALETTES={
+  yandex:[[.17,.04,.11],[.47,.13,.52],[.78,.33,.70],[1,.45,.52],[1,.68,.82],[1,.89,.93]],
+  youtube:[[.16,.03,.05],[.50,.08,.14],[.82,.18,.25],[1,.40,.30],[1,.65,.50],[1,.88,.80]]
+};
+let paletteName='';
+function applyTheme(name){
+  name=name==='youtube'?'youtube':'yandex';
+  if(name===paletteName)return;
+  paletteName=name;LiquidGlass.setPalette(PALETTES[name]);
+}
 LiquidGlass.mount({
-  canvas:$('lg-canvas'),root:document.querySelector('.shell'),poster:LiquidPosters.main,
+  canvas:$('lg-canvas'),root:document.querySelector('.shell'),palette:PALETTES.yandex,solid:true,
+  bgAlpha:.62,glassAlpha:.84,aurora:.8,
   // bevel — ширина скоса кромки, strength — «толщина» стекла (сила преломления), dark — затемнение интерьера
   kinds:[
-    {selector:'.player,.preferences,.footer',bevel:24,strength:44,dark:.58,tint:[.02,.03,.07],blur:3.2},
-    {selector:'.genre',bevel:16,strength:28,dark:.66,tint:[.03,.04,.08],blur:2.6,clip:'.genres'},
-    {selector:'.icon-button',bevel:13,strength:20,dark:.84,tint:[.04,.05,.10],blur:1.6},
-    {selector:'.play-button',bevel:22,strength:34,dark:.80,tint:playTint,blur:2.0}
+    {selector:'.shell',frame:true,bevel:46,strength:120,tint:[0,0,0]},   // кромка окна: линза, искажающая рабочий стол
+    {selector:'.player,.preferences,.footer',bevel:24,strength:44,dark:.56,tint:[.04,.01,.05],blur:3.0},
+    {selector:'.genre',bevel:16,strength:28,dark:.62,tint:[.04,.01,.05],blur:2.4,clip:'.genres'},
+    {selector:'.icon-button',bevel:13,strength:20,dark:.70,tint:[.05,.01,.06],blur:1.4},
+    {selector:'.play-button',bevel:22,strength:34,dark:.72,tint:playTint,blur:1.8}
   ]
 });
-/* настройки эффекта: glass — шейдерное стекло, clear — прозрачное окно с реальным фоном за стеклом */
-var fx={glass:true,clear:true};
+/* настройки эффекта: glass — шейдерное стекло, clear — фон окна «просвечивает» рабочим столом (снимок от приложения), anim — анимация авроры */
+var fx={glass:true,clear:true,anim:true};
+function ensureFxUi(){
+  if($('fx-anim'))return;
+  const anchor=$('fx-clear-row')||($('fx-clear')&&$('fx-clear').closest('label'));if(!anchor)return;
+  const row=document.createElement('label');row.className='preference';row.id='fx-anim-row';
+  row.innerHTML='<svg><use href="#i-gauge"/></svg><span>Анимация фона</span><input id="fx-anim" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span>';
+  anchor.after(row);
+  $('fx-anim').addEventListener('change',e=>changeFx({anim:e.target.checked}));
+}
 function applyFx(){
   const quality=document.body.dataset.quality||'high';
   const glassOn=fx.glass&&quality!=='low';
   const clear=glassOn&&fx.clear;
   document.body.classList.toggle('lg-clear',clear);
-  LiquidGlass.setSolid(!clear);
+  document.body.classList.toggle('lg-glass',glassOn);
+  LiquidGlass.setBgAlpha(clear?.58:1);   // «прозрачное окно» = фон-аврора просвечивает; кромка искажает рабочий стол всегда
+  LiquidGlass.setSolid(true);                 // окно непрозрачное; «прозрачность» даёт снимок рабочего стола
+  LiquidGlass.setAnimated(fx.anim);
   LiquidGlass.setQuality(glassOn?quality:'low');
-  const g=$('fx-glass'),c=$('fx-clear');
+  const g=$('fx-glass'),c=$('fx-clear'),an=$('fx-anim');
   if(g)g.checked=fx.glass;
-  if(c){c.checked=fx.clear;c.disabled=!glassOn;$('fx-clear-row').style.opacity=glassOn?'':'.45';}
+  if(an){an.checked=fx.anim;an.disabled=!glassOn;}
+  if(c){c.checked=fx.clear;c.disabled=!glassOn;const r=$('fx-clear-row');if(r)r.style.opacity=glassOn?'':'.45';}
   syncBackdrop();
 }
 async function changeFx(patch){
@@ -295,19 +339,20 @@ async function changeFx(patch){
   const result=await invoke('set_fx',fx);
   if(!result.ok){fx=previous;applyFx();toast(result.error);}
 }
+ensureFxUi();
 applyQuality('high');
-/* Optional native desktop backdrop. */
+/* снимок рабочего стола под окном: приложение исключает окно из захвата и присылает JPEG + размеры/позицию */
 var backdropTimer=0,backdropBusy=false;
 async function pullBackdrop(){
   if(backdropBusy||!api)return;backdropBusy=true;
-  try{const r=await api.get_backdrop();if(r&&r.ok&&r.data)LiquidGlass.setBackdrop(r.data);}catch(_){}
+  try{const r=await api.get_backdrop();if(r&&r.ok&&r.data)LiquidGlass.setBackdrop(r.data,{w:r.w,h:r.h,pad:r.pad,left:r.left,top:r.top});}catch(_){}
   finally{backdropBusy=false;}
 }
 function syncBackdrop(){
   clearInterval(backdropTimer);backdropTimer=0;
-  const clear=document.body.classList.contains('lg-clear');
-  const on=clear&&api&&typeof api.get_backdrop==='function'&&!document.hidden;
-  if(on){pullBackdrop();backdropTimer=setInterval(pullBackdrop,1200);}else if(!clear)LiquidGlass.clearBackdrop();
+  const glass=document.body.classList.contains('lg-glass');
+  const on=glass&&api&&!document.hidden;
+  if(on){pullBackdrop();backdropTimer=setInterval(pullBackdrop,700);}else if(!glass)LiquidGlass.clearBackdrop();
 }
 document.addEventListener('visibilitychange',syncBackdrop);
 async function connect() {
@@ -317,6 +362,7 @@ async function connect() {
   configuration=await invoke('get_settings');
   if(!configuration.bindings){toast(configuration.error||'Не удалось загрузить настройки');api=null;return;}
   $('on-top').checked=configuration.on_top;$('startup').checked=configuration.startup;
+  window.LiquidMood?.configure(configuration.liquid_mood);
   renderGenres(configuration.genres);updateShortcuts();
   fx={...fx,...(configuration.fx||{})};
   applyQuality(configuration.quality || 'high');

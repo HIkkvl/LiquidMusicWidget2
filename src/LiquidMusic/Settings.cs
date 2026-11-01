@@ -48,10 +48,54 @@ internal sealed class Settings
         Value["overlay"] ??= JsonSerializer.SerializeToNode(new { enabled=true,corner="top-right",duration=4 });
         Value["wheel"] ??= JsonSerializer.SerializeToNode(new { enabled=true,modifier="ctrl",step=5 });
         Value["drop"] ??= JsonSerializer.SerializeToNode(new { enabled=true,side="top" });
-        Value["fx"] ??= JsonSerializer.SerializeToNode(new { glass=true,clear=false });
+        Value["liquid_mood"] ??= JsonSerializer.SerializeToNode(new { enabled=false });
+        if (Value["liquid_mood"] is JsonObject mood) mood["enabled"] ??= false;
+        else Value["liquid_mood"] = JsonSerializer.SerializeToNode(new { enabled=false });
+        Value["fx"] ??= JsonSerializer.SerializeToNode(new { glass=true,clear=true,anim=true });
+        if (Value["fx"] is JsonObject fx)
+        {
+            fx["glass"] ??= true; fx["clear"] ??= true; fx["anim"] ??= true;
+            // старое значение clear=false (по умолчанию в прежней версии) не должно выключать новый эффект
+            if (Value["fx_v"]?.GetValue<int>() != 2) { fx["clear"] = true; Value["fx_v"] = 2; }
+        }
+        Value["island_theme"] = NormalizeIslandTheme(Value["island_theme"]);
+        Value["discord"] = NormalizeDiscord(Value["discord"]);
+        Value["design"] = NormalizeDesign(Value["design"]);
         Value["service"] ??= "yandex";
         Value["quality"] ??= "high";
         Value["on_top"] ??= true;
+    }
+    private static readonly string[] IslandPresets = ["aurora", "ocean", "sunset", "mint", "violet", "graphite", "abyss", "custom"];
+    /// <summary>Цветовая схема острова: известный пресет и три цвета «Свои» строго в формате #rrggbb (иначе значения по умолчанию).</summary>
+    internal static JsonObject NormalizeIslandTheme(JsonNode? value)
+    {
+        static string Hex(JsonNode? node, string fallback) =>
+            node is JsonValue v && v.TryGetValue<string>(out var text) && System.Text.RegularExpressions.Regex.IsMatch(text, "^#[0-9a-fA-F]{6}$") ? text.ToLowerInvariant() : fallback;
+        var source = value as JsonObject;
+        var preset = source?["preset"] is JsonValue p && p.TryGetValue<string>(out var name) && IslandPresets.Contains(name) ? name : "aurora";
+        var custom = source?["custom"] as JsonObject;
+        return new JsonObject
+        {
+            ["preset"] = preset,
+            ["custom"] = new JsonObject { ["dark"] = Hex(custom?["dark"], "#2b0a1d"), ["accent"] = Hex(custom?["accent"], "#ff5ea8"), ["light"] = Hex(custom?["light"], "#ffe4f1") }
+        };
+    }
+    /// <summary>Оформление виджета: «aurora» (по умолчанию) или «abyss».</summary>
+    internal static string NormalizeDesign(JsonNode? value) =>
+        value is JsonValue v && v.TryGetValue<string>(out var name) && (name is "aurora" or "abyss") ? name : "aurora";
+    /// <summary>Статус в Discord: включён по умолчанию, но работает только с Application ID из Discord Developer Portal.</summary>
+    internal static JsonObject NormalizeDiscord(JsonNode? value)
+    {
+        var source = value as JsonObject;
+        bool Flag(string key, bool fallback) => source?[key] is JsonValue v && v.TryGetValue<bool>(out var b) ? b : fallback;
+        var id = source?["client_id"] is JsonValue c && c.TryGetValue<string>(out var text) ? text.Trim() : "";
+        return new JsonObject
+        {
+            ["enabled"] = Flag("enabled", true),
+            ["client_id"] = DiscordPresence.ValidClientId(id) ? id : "",
+            ["show_artwork"] = Flag("show_artwork", true),
+            ["show_paused"] = Flag("show_paused", false)
+        };
     }
     public string Service => Value["service"]?.GetValue<string>() == "youtube" ? "youtube" : "yandex";
     public static JsonObject Defaults()

@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="glass-fx.css">
   <link rel="stylesheet" href="liquid.css">
+  <link rel="stylesheet" href="island-theme.css">
+  <link rel="stylesheet" href="liquid-mood.css">
 </head>
 <body>
 <svg class="sprite" xmlns="http://www.w3.org/2000/svg"><defs>
@@ -43,6 +45,26 @@
     <button type="button" class="icon-button" id="voice-button" aria-label="Начать голосовую команду" aria-pressed="false" title="Голосовая команда · Num3"><svg><use href="#i-mic"/></svg></button>
     <div class="voice-copy"><strong id="voice-status" role="status" aria-live="polite">Скажите: «включи трек Династия»</strong><span id="voice-transcript" hidden></span><small>По нажатию · русский · локально · без отправки записи</small></div>
     <button type="button" class="icon-button" id="open-music" aria-label="Открыть музыку в браузере по умолчанию" title="Открыть музыку в браузере по умолчанию"><svg><use href="#i-music"/></svg></button>
+  </section>
+  <section id="liquid-mood" class="liquid-mood glass" role="region" aria-labelledby="liquid-mood-title" hidden>
+    <div class="mood-aura" aria-hidden="true"></div>
+    <header class="mood-top">
+      <button type="button" id="mood-back" class="mood-back" aria-label="Назад" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
+      <span class="mood-brand">Liquid Mood</span>
+      <span class="mood-local" title="Картинки берутся только из папок на этом компьютере. Ничего не скачивается."><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Только локально</span></span>
+    </header>
+    <div id="mood-stage" class="mood-stage" aria-live="polite">
+      <div class="mood-intro"><h2 id="liquid-mood-title">Как настроение сегодня?</h2><p id="mood-copy">Небольшая пауза — только для вас.</p></div>
+      <figure id="mood-viewer" class="mood-viewer" data-state="loading" hidden>
+        <button type="button" id="mood-frame" class="mood-frame" aria-label="Показать следующую картинку">
+          <img id="mood-image" alt="">
+          <span class="mood-skeleton" aria-hidden="true"></span>
+          <span id="mood-counter" class="mood-counter"></span>
+        </button>
+      </figure>
+      <div id="mood-status" class="mood-status" role="status" hidden></div>
+      <div id="mood-actions" class="mood-actions" data-layout="tiles"></div>
+    </div>
   </section>
   <section class="genres-section" aria-label="Музыкальные жанры"><div class="section-heading"><h2>Жанры</h2><span>Найдите своё звучание</span></div><div id="genres" class="genres" tabindex="0" aria-label="Список жанров"></div></section>
   <section class="preferences glass" aria-label="Параметры виджета">
@@ -97,10 +119,28 @@
       </select>
     </label>
   </div>
-</section><section class="island-settings" aria-label="Остров у края экрана"><label class="preference"><svg><use href="#i-window"/></svg><span>Остров у края экрана</span><input id="island-enabled" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label><p class="island-hint">Наведите курсор на выбранный край экрана — появится остров с музыкой. Подведите курсор к нему, и он раскроется с кнопками.</p><div class="screen-picker" id="island-picker" role="group" aria-label="Край экрана для острова"><button type="button" data-side="top" aria-pressed="true">Сверху</button><button type="button" data-side="left" aria-pressed="false">Слева</button><button type="button" data-side="right" aria-pressed="false">Справа</button><button type="button" data-side="bottom" aria-pressed="false">Снизу</button><span class="screen-center" aria-hidden="true">экран</span></div><p class="island-status" id="island-status" role="status"></p></section><p class="settings-note">Num-клавиши работают при включённом Num Lock. Выберите «Не назначена», чтобы отключить действие.</p><p id="settings-error" class="settings-error" role="alert" hidden></p><button id="save-shortcuts" class="save-button">Сохранить настройки</button><div class="settings-bottom"><button id="reset-shortcuts">Сбросить клавиши</button><button id="quit-button">Завершить работу</button></div></div>
+</section><section class="island-settings" aria-label="Остров у края экрана"><label class="preference"><svg><use href="#i-window"/></svg><span>Остров у края экрана</span><input id="island-enabled" type="checkbox" class="switch" checked><span class="switch-track" aria-hidden="true"></span></label><p class="island-hint">Наведите курсор на выбранный край экрана — появится остров с музыкой. Подведите курсор к нему, и он раскроется с кнопками.</p><div class="screen-picker" id="island-picker" role="group" aria-label="Край экрана для острова"><button type="button" data-side="top" aria-pressed="true">Сверху</button><button type="button" data-side="left" aria-pressed="false">Слева</button><button type="button" data-side="right" aria-pressed="false">Справа</button><button type="button" data-side="bottom" aria-pressed="false">Снизу</button><span class="screen-center" aria-hidden="true">экран</span></div><p class="island-status" id="island-status" role="status"></p></section><section class="island-theme" aria-label="Цвета острова">
+  <h3>Цвета острова</h3>
+  <p class="island-hint">Отдельная цветовая схема для острова. Основное окно не меняется.</p>
+  <div class="theme-swatches" id="island-themes" role="radiogroup" aria-label="Цветовая схема острова"></div>
+  <div class="theme-custom" id="island-custom" hidden>
+    <label>Тёмный<input type="color" id="ic-dark" value="#2b0a1d"></label>
+    <label>Акцент<input type="color" id="ic-accent" value="#ff5ea8"></label>
+    <label>Светлый<input type="color" id="ic-light" value="#ffe4f1"></label>
+  </div>
+  <div class="theme-actions"><button type="button" id="island-preview">Показать остров</button><span class="island-status" id="theme-status" role="status"></span></div>
+</section><section class="mood-settings" aria-label="Liquid Mood">
+  <label class="preference" for="liquid-mood-enabled"><svg><use href="#i-glass"/></svg><span>Liquid Mood</span><input id="liquid-mood-enabled" type="checkbox" class="switch"><span class="switch-track" aria-hidden="true"></span></label>
+  <p class="island-hint">Короткий вопрос о настроении при запуске и мягкая подборка: фото котов и собак, смешные мемы или спокойная музыка. Картинки берутся только из локальных папок, ничего не скачивается, и показываются по одной — только после вашего выбора.</p>
+  <p class="island-hint">Положите свои изображения (JPG, PNG, WebP, GIF) в папки <b>cats</b>, <b>dogs</b> и <b>memes</b> внутри <b>assets\liquid-mood</b>.</p>
+  <div class="mood-settings-actions"><button type="button" id="liquid-mood-show" disabled>Показать сейчас</button></div>
+</section><p class="settings-note">Num-клавиши работают при включённом Num Lock. Выберите «Не назначена», чтобы отключить действие.</p><p id="settings-error" class="settings-error" role="alert" hidden></p><button id="save-shortcuts" class="save-button">Сохранить настройки</button><div class="settings-bottom"><button id="reset-shortcuts">Сбросить клавиши</button><button id="quit-button">Завершить работу</button></div></div>
 </dialog>
 <script src="liquid-glass.js"></script>
 <script src="app.js"></script>
+<script src="liquid-mood.js"></script>
+<script src="island-palettes.js"></script>
+<script src="island-theme.js"></script>
 <script>
 (() => {
   const enabled = document.getElementById('island-enabled'), picker = document.getElementById('island-picker'),
