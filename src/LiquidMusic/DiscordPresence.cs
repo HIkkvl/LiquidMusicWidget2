@@ -68,7 +68,7 @@ internal sealed class DiscordPresence : IAsyncDisposable
     internal static JsonObject? BuildActivity(Track track, Options options, long nowSeconds)
     {
         if (!track.Playable || (!track.Playing && !options.ShowPaused)) return null;
-        var service = track.Service == "youtube" ? "YouTube Music" : "Яндекс Музыка";
+        var service = MusicServices.Name(track.Service);
         var artist = track.Artist.Length > 0 ? track.Artist : service;
         var activity = new JsonObject
         {

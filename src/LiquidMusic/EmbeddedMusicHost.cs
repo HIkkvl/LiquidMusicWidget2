@@ -128,8 +128,14 @@ internal sealed class EmbeddedMusicHost : IDisposable
         if(url=="about:blank")return true;
         if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Scheme!="https")return false;
         static bool Under(string host,string domain)=>host==domain||host.EndsWith("."+domain,StringComparison.OrdinalIgnoreCase);
-        return service=="youtube"?Under(uri.Host,"youtube.com")||uri.Host is "accounts.google.com" or "consent.google.com":
-            new[]{"yandex.ru","yandex.kz","yandex.com"}.Any(domain=>Under(uri.Host,domain));
+        return service switch
+        {
+            "youtube"=>Under(uri.Host,"youtube.com")||uri.Host is "accounts.google.com" or "consent.google.com",
+            "spotify"=>Under(uri.Host,"spotify.com")||uri.Host is "accounts.google.com" or "appleid.apple.com",
+            "soundcloud"=>Under(uri.Host,"soundcloud.com")||uri.Host is "accounts.google.com" or "appleid.apple.com" or "www.facebook.com",
+            "yandex"=>new[]{"yandex.ru","yandex.kz","yandex.com"}.Any(domain=>Under(uri.Host,domain)),
+            _=>false
+        };
     }
     internal async Task<MusicWindow> EnsureServiceAsync(string service,string origin)
     {
@@ -159,13 +165,15 @@ internal sealed class EmbeddedMusicHost : IDisposable
     {
         var window=await EnsureServiceAsync(service,origin);
         window.View.CoreWebView2.Navigate(LoginUrl(service,origin,accounts.GetValueOrDefault(service)));
-        window.ShowLogin(true);
+        window.ShowLogin(service!="soundcloud"||!accounts.GetValueOrDefault(service));
     }
     internal static string LoginUrl(string service,string origin,bool signedIn=false)
     {
         if(!AllowedNavigation(origin,service)||!BrowserController.MatchesService(origin,service))
             throw new ArgumentException("Ожидался адрес музыкального сервиса.",nameof(origin));
         var destination=Uri.EscapeDataString(origin);
+        if(service=="spotify")return "https://accounts.spotify.com/login?continue="+destination;
+        if(service=="soundcloud")return "https://soundcloud.com/signin?redirect_url=%2Fdiscover";
         return service=="youtube"?"https://accounts.google.com/ServiceLogin?continue="+destination:
             "https://passport."+new Uri(origin).Host["music.".Length..]+"/auth"+(signedIn?"/add":"")+"?retpath="+destination;
     }
@@ -193,7 +201,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
         internal MusicWindow(string service,Func<string> design)
         {
             this.design=design;
-            Text=service=="youtube"?"Вход в YouTube — Liquid Music":"Вход в Яндекс Музыку — Liquid Music";
+            Text="Вход · "+MusicServices.Name(service)+" — Liquid Music";
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
             Font=new Font("Segoe UI",10);DoubleBuffered=true;
             var title=new Label{Text=Text,Dock=DockStyle.Fill,ForeColor=Color.White,Font=new Font("Segoe UI Semibold",17),TextAlign=ContentAlignment.MiddleLeft};

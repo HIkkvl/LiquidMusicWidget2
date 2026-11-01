@@ -67,6 +67,12 @@
     </div>
   </section>
   <section class="genres-section" aria-label="Подборки Моей волны"><div class="section-heading"><h2>Моя волна</h2><button type="button" id="refresh-waves" class="wave-refresh" aria-label="Обновить подборки Моей волны">Обновить</button></div><div id="genres" class="genres" tabindex="0" aria-label="Подборки из Яндекс Музыки"></div></section>
+  <section id="service-search" class="service-search glass" aria-label="Поиск треков" hidden>
+    <h2 id="service-search-title">Найти трек</h2>
+    <p>Введите исполнителя и название или попросите голосового помощника.</p>
+    <form id="service-search-form"><label for="service-query">Исполнитель и трек</label><input id="service-query" type="search" maxlength="200" placeholder="Например: madk1d РЕХАБ" autocomplete="off" required><button id="service-search-play" type="submit">Включить</button></form>
+    <p id="service-note"></p>
+  </section>
   <section class="preferences glass" aria-label="Громкость музыки">
     <div class="volume-section"><label class="preference" for="volume"><svg><use href="#i-volume"/></svg><span>Громкость</span><span class="volume-value" id="volume-value">—</span></label><input type="range" id="volume" aria-label="Громкость музыки" min="0" max="100" value="100" disabled></div>
   </section>
@@ -74,6 +80,8 @@
   <div class="service-tabs" role="tablist">
     <button class="service-tab active" data-service="yandex" title="Яндекс Музыка"><span class="service-icon ya">Я</span></button>
     <button class="service-tab" data-service="youtube" title="YouTube / YouTube Music"><span class="service-icon yt">▶</span></button>
+    <button class="service-tab" data-service="spotify" title="Spotify" aria-label="Spotify"><span class="service-icon sp">≋</span></button>
+    <button class="service-tab" data-service="soundcloud" title="SoundCloud" aria-label="SoundCloud"><span class="service-icon sc">☁</span></button>
   </div>
   <div class="footer-copy">
     <strong id="connection-title">Подключение к сервису…</strong>

@@ -1,5 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
+const serviceNames={yandex:'Яндекс Музыка',youtube:'YouTube Music',spotify:'Spotify',soundcloud:'SoundCloud'};
 const clone = value => JSON.parse(JSON.stringify(value));
 const defaultBindings = Object.fromEntries([['toggle','Num0'],['next','Num6'],['previous','Num4'],['play_pause','Num5'],['stop','Num2'],['like','Num1'],['voice','Num3']].map(([action,key]) => [action,{key,ctrl:false,alt:false,shift:false}]));
 let wavesKey=null,wavesAttempted=false,wavesLoading=false,waveSelecting=false,waveOrigin=null;
@@ -182,6 +183,7 @@ function renderBrowserSettings() {
   const title=document.createElement('h3');title.id='browser-name';
   const state=document.createElement('p');state.id='browser-status';state.setAttribute('role','status');state.setAttribute('aria-live','polite');
   const note=document.createElement('p');note.textContent=embedded?'Музыка работает внутри приложения. Войдите на странице музыкального сервиса; после входа окно скроется и останется только компактный виджет. Сессия сохраняется локально в отдельном профиле приложения.':'Используется браузер по умолчанию Windows. Подключите его один раз: настройка сохраняется и восстанавливается при запуске приложения.';
+  note.id='account-note';
   const persist=document.createElement('label');persist.className='overlay-enabled';
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.id='browser-persist-shortcuts';checkbox.checked=true;
   persist.append(checkbox,document.createTextNode('Закрепить подключение в ярлыках браузера (с резервными копиями)'));
@@ -211,6 +213,7 @@ function renderBrowserSettings() {
   });
   regionLabel.append(region);
   const regionNote=document.createElement('p');regionNote.textContent=embedded?'Выберите домен вашего аккаунта: .ru, .kz или .com. Режим «Авто» запоминает домен внутри приложения; по умолчанию используется music.yandex.ru.':'Авто использует открытую музыкальную вкладку и запоминает её домен. При первом запуске без вкладки откроется music.yandex.ru.';
+  regionLabel.dataset.yandexRegion='';regionNote.dataset.yandexRegion='';
   if(embedded){button.classList.add('account-signin');section.append(title,state,button,note,regionLabel,regionNote,persist);}
   else section.append(title,state,note,regionLabel,regionNote,persist,button);
   $('browser-settings-content').replaceChildren(section);
@@ -220,10 +223,12 @@ function renderBrowserConnection(browser) {
   const state=$('browser-status'),button=$('connect-browser');if(!state||!button)return;
   browser=browser||{name:'Браузер Windows',state:'not_configured',message:'Подключите браузер один раз',supported:true};
   if(browser.embedded){
-    $('browser-name').textContent='Музыкальный аккаунт';
+    $('browser-name').textContent='Аккаунт · '+serviceNames[configuration.service||'yandex'];
+    $('account-note').textContent=configuration.service==='spotify'?'Spotify работает в отдельном фоновом Microsoft Edge с профилем приложения. При входе окно видно, после авторизации оно скроется. Ваш обычный профиль браузера не используется.':'Музыка работает внутри приложения. После входа окно скроется; сессия сохраняется локально в отдельном профиле приложения.';
     state.textContent=browserSetupPending?'Открываем окно входа…':browser.message;
     state.dataset.state=browser.state;
-    button.textContent=browser.signed_in?'Сменить аккаунт':(configuration.service==='youtube'?'Войти в YouTube':'Войти в Яндекс');
+    button.textContent=browser.signed_in?(configuration.service==='spotify'||configuration.service==='soundcloud'?'Открыть аккаунт':'Сменить аккаунт'):'Войти в '+((configuration.service||'yandex')==='yandex'?'Яндекс':serviceNames[configuration.service]);
+    document.querySelectorAll('[data-yandex-region]').forEach(el=>el.hidden=(configuration.service||'yandex')!=='yandex');
     button.disabled=browserSetupPending;
     $('browser-persist-shortcuts').closest('label').hidden=true;
     return;
@@ -269,13 +274,20 @@ async function setQuality(level){
   if(!result.ok)toast(result.error);
   else toast(level==='high'?'Качество: высокое (максимум эффектов)':level==='medium'?'Качество: среднее (баланс)':'Качество: низкое (минимум нагрузки)');
 }
-function switchService(name){
+let switchingService=false;
+async function switchService(name){
+  if(switchingService||!serviceNames[name]||configuration.service===name)return;
+  switchingService=true;
+  const result=await invoke('set_service',name);
+  switchingService=false;
+  if(!result.ok){toast(result.error);return;}
   document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===name));
   document.body.dataset.service=name;
   applyTheme(name);
   configuration.service=name;
-  invoke('set_service',name);
-  toast(name==='youtube'?'YouTube · встроенный плеер':'Яндекс Музыка · встроенный плеер');
+  renderState({connected:false,service:name});
+  await poll();
+  toast(serviceNames[name]+' · '+(name==='spotify'?'фоновый плеер':'встроенный плеер'));
 }
 async function saveShortcuts() {
   const button=$('save-shortcuts');button.disabled=true;
@@ -294,6 +306,11 @@ function renderState(snapshot) {
   const connected=!!snapshot.connected;
   const waveService=configuration?.service||snapshot.service||'yandex';
   document.querySelector('.genres-section').hidden=waveService!=='yandex';
+  $('service-search').hidden=waveService==='yandex';
+  $('service-search-title').textContent='Поиск · '+serviceNames[waveService];
+  $('service-note').textContent=waveService==='spotify'?'Spotify работает в отдельном фоновом Edge. Доступность треков и воспроизведения зависит от аккаунта и региона.':waveService==='soundcloud'?'Для лайков войдите в SoundCloud. Некоторые треки требуют подписку или недоступны в вашем регионе.':'Воспроизведение зависит от доступности трека и аккаунта.';
+  document.querySelector('.brand strong').textContent=serviceNames[waveService];
+  document.querySelector('.brand-mark').textContent=waveService==='spotify'?'≋':waveService==='soundcloud'?'☁':waveService==='youtube'?'▶':'✳';
   if(waveService==='yandex'){
     if(waveOrigin&&snapshot.wave_origin&&waveOrigin!==snapshot.wave_origin){wavesAttempted=false;renderWaves();}
     if(snapshot.wave_origin)waveOrigin=snapshot.wave_origin;
@@ -333,12 +350,12 @@ function renderState(snapshot) {
   const svcNow=(configuration && configuration.service) || snapshot.service || 'yandex';
   document.body.dataset.service=svcNow;
   applyTheme(svcNow);
-  document.querySelectorAll('.service-tab').forEach(t=>t.classList.toggle('active',t.dataset.service===svcNow));
+  document.querySelectorAll('.service-tab').forEach(t=>{const active=t.dataset.service===svcNow;t.classList.toggle('active',active);t.setAttribute('role','tab');t.setAttribute('aria-selected',String(active));});
   const svcShown=snapshot.service||'yandex';
-  $('connection-title').textContent=connected?(svcShown==='youtube'?'YouTube подключён':'Яндекс Музыка подключена'):(svcNow==='youtube'?'Откройте YouTube или YouTube Music':'Откройте Яндекс Музыку');
+  $('connection-title').textContent=connected?serviceNames[svcShown]+(svcShown==='yandex'?' подключена':' подключён'):'Откройте '+serviceNames[svcNow];
   const embedded=!!(snapshot.browser?.embedded||configuration?.browser?.embedded);
   if(embedded&&!connected)$('connection-title').textContent='Войдите в музыкальный аккаунт';
-  $('connection-detail').textContent=snapshot.error?snapshot.error:embedded?(connected?'Внутри приложения · фоновый плеер':'Настройки → Аккаунт → Войти'):connected?(snapshot.browser?.name||configuration?.browser?.name||'Браузер')+' · без расширений':'Настройки → Подключить браузер';
+  $('connection-detail').textContent=snapshot.error?snapshot.error:embedded?(connected?(svcNow==='spotify'?'Отдельный Edge · фоновый плеер':'Внутри приложения · фоновый плеер'):'Настройки → Аккаунт → Войти'):connected?(snapshot.browser?.name||configuration?.browser?.name||'Браузер')+' · без расширений':'Настройки → Подключить браузер';
   $('connection-detail').title=snapshot.error||'';
   const supported=connected && Number.isFinite(snapshot.volume);
   $('volume').disabled=!supported;
@@ -379,15 +396,17 @@ async function poll() {
 /* ---------- жидкое стекло: какие элементы рисует шейдер ---------- */
 // тема: подключаем доп. стили (розово-фиолетовые акценты), не трогая style.css
 if(!document.querySelector('link[href$="aurora.css"]')){const l=document.createElement('link');l.rel='stylesheet';l.href='aurora.css';document.head.append(l);}
-const playTint=()=>document.body.dataset.service==='youtube'?[.34,.06,.08]:[.30,.05,.24];
+const playTint=()=>({youtube:[.34,.06,.08],spotify:[.04,.28,.12],soundcloud:[.35,.13,.03]}[document.body.dataset.service]||[.30,.05,.24]);
 // палитра авроры (от тёмного к светлому): розово-фиолетовая и красная для YouTube
 const PALETTES={
   yandex:[[.17,.04,.11],[.47,.13,.52],[.78,.33,.70],[1,.45,.52],[1,.68,.82],[1,.89,.93]],
-  youtube:[[.16,.03,.05],[.50,.08,.14],[.82,.18,.25],[1,.40,.30],[1,.65,.50],[1,.88,.80]]
+  youtube:[[.16,.03,.05],[.50,.08,.14],[.82,.18,.25],[1,.40,.30],[1,.65,.50],[1,.88,.80]],
+  spotify:[[.02,.12,.07],[.04,.25,.13],[.08,.48,.24],[.12,.72,.36],[.35,.88,.55],[.80,1,.87]],
+  soundcloud:[[.16,.05,.02],[.40,.12,.03],[.72,.26,.05],[1,.40,.12],[1,.67,.32],[1,.9,.75]]
 };
 let paletteName='';
 function applyTheme(name){
-  name=name==='youtube'?'youtube':'yandex';
+  name=PALETTES[name]?name:'yandex';
   if(name===paletteName)return;
   paletteName=name;LiquidGlass.setPalette(PALETTES[name]);
 }
@@ -472,6 +491,12 @@ async function connect() {
 }
 $('refresh-waves').addEventListener('click',refreshWaves);
 $('track-context').addEventListener('click',resetWave);
+$('service-search-form').addEventListener('submit',async event=>{
+  event.preventDefault();const query=$('service-query').value.trim();if(!query)return;
+  const button=$('service-search-play');button.disabled=true;button.textContent='Ищу…';
+  try{const result=await command('search_play',query);if(result.ok){toast('Трек включён');await poll();}}
+  finally{button.disabled=false;button.textContent='Включить';}
+});
 $('settings-button').addEventListener('click',()=>showSettings());
 $('keys-button').addEventListener('click',()=>showSettings('controls'));
 document.querySelectorAll('[data-settings-tab]').forEach(tab=>{

@@ -18,6 +18,8 @@ internal sealed class BrowserController : IAsyncDisposable
     private readonly YandexMusicRegion yandex;
     private readonly Settings settings;
     private readonly EmbeddedMusicHost? embedded;
+    private SpotifyMusicHost? spotify;
+    private string Origin(string service)=>service=="yandex"?yandex.Origin:MusicServices.Origin(service);
     public BrowserController(Settings? settings=null,EmbeddedMusicHost? embedded=null)
     {this.settings=settings??new Settings();this.embedded=embedded;yandex=new(this.settings);}
     public void SetYandexDomain(string domain)
@@ -34,12 +36,19 @@ internal sealed class BrowserController : IAsyncDisposable
     public static bool MatchesService(string url,string service)
     {
         if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Scheme!="https")return false;
-        return service=="youtube" ? uri.Host is "www.youtube.com" or "youtube.com" or "music.youtube.com" : uri.Host is "music.yandex.ru" or "music.yandex.kz" or "music.yandex.com";
+        return service switch
+        {
+            "youtube"=>uri.Host is "www.youtube.com" or "youtube.com" or "music.youtube.com",
+            "spotify"=>uri.Host=="open.spotify.com",
+            "soundcloud"=>uri.Host is "soundcloud.com" or "www.soundcloud.com",
+            "yandex"=>uri.Host is "music.yandex.ru" or "music.yandex.kz" or "music.yandex.com",
+            _=>false
+        };
     }
     private string attachedExecutable="";
     public JsonObject Status()
     {
-        if(embedded!=null)return embedded.Status(settings.Service);
+        if(embedded!=null)return settings.Service=="spotify"?(spotify??=new()).Status():embedded.Status(settings.Service);
         var info=BrowserSetup.DetectDefault();
         var saved=info.Supported?BrowserSetup.Read(info):null;
         var connected=info.Supported && browser?.IsConnected==true && attachedExecutable.Length>0 && BrowserSetup.SameExecutable(attachedExecutable,info.Executable);
@@ -70,7 +79,12 @@ internal sealed class BrowserController : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
-            if(embedded!=null){await embedded.ShowLoginAsync(settings.Service,settings.Service=="youtube"?"https://music.youtube.com/":yandex.Origin);return;}
+            if(embedded!=null)
+            {
+                if(settings.Service=="spotify")await (spotify??=new()).ShowLoginAsync();
+                else await embedded.ShowLoginAsync(settings.Service,Origin(settings.Service));
+                return;
+            }
             await BrowserSetup.ConfigureAsync(true,updateShortcuts);await ConnectAsync(false);
         }
         finally{gate.Release();}
@@ -105,6 +119,8 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     private async Task<IPage> PageAsync(string service,bool create)
     {
+        if(!MusicServices.Supported(service))throw new ArgumentException("Неизвестный музыкальный сервис.");
+        if(embedded!=null&&service=="spotify")return await (spotify??=new()).PageAsync();
         if(embedded!=null)return await EmbeddedPageAsync(service);
         await ConnectAsync(create);
         if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed&&MatchesService(previous.Url,service))return RememberPage(previous,service);
@@ -119,7 +135,7 @@ internal sealed class BrowserController : IAsyncDisposable
         if(page==null)
         {
             if(!create)throw new InvalidOperationException("Музыкальная вкладка будет открыта при первой команде.");
-            var url=service=="youtube"?"https://www.youtube.com/":yandex.Origin;
+            var url=Origin(service);
             var existingPages=browser.Contexts.SelectMany(context=>context.Pages).ToHashSet();
             var session=await browser.NewBrowserCDPSessionAsync();
             try{await session.SendAsync("Target.createTarget",new Dictionary<string,object>{{"url",url},{"background",true}});}finally{await session.DetachAsync();}
@@ -140,7 +156,7 @@ internal sealed class BrowserController : IAsyncDisposable
     }
     private async Task<IPage> EmbeddedPageAsync(string service)
     {
-        await embedded!.EnsureServiceAsync(service,service=="youtube"?"https://music.youtube.com/":yandex.Origin);
+        await embedded!.EnsureServiceAsync(service,Origin(service));
         await ConnectAsync(false);
         if(selected.TryGetValue(service,out var previous)&&!previous.IsClosed)return RememberPage(previous,service);
         for(var attempt=0;attempt<30;attempt++)
@@ -164,14 +180,14 @@ internal sealed class BrowserController : IAsyncDisposable
     {
         if(!MatchesService(page.Url,service))
         {
-            if(embedded!=null){embedded.SetSignedIn(service,false);return new(){["connected"]=false,["service"]=service,["error"]="Войдите в аккаунт: Настройки → Аккаунт."};}
+            if(embedded!=null){if(service=="spotify")spotify?.SetSignedIn(false);else embedded.SetSignedIn(service,false);return new(){["connected"]=false,["service"]=service,["error"]="Войдите в аккаунт: Настройки → Аккаунт."};}
             throw new InvalidOperationException("Музыкальная вкладка перешла на другой сайт. Завершите вход в браузере и повторите.");
         }
         if(service=="yandex")yandex.Remember(page.Url);
         var snapshot=await EvaluateSnapshotAsync(page,service);
         // Яндекс Музыка играет через `new Audio()`, которого нет в DOM: тогда время и ссылка на поток недоступны.
         // Находим такие элементы через CDP и регистрируем их для скрипта страницы.
-        if(service=="yandex"&&snapshot["playing"]?.GetValue<bool>()==true&&
+        if(service!="youtube"&&snapshot["playing"]?.GetValue<bool>()==true&&
            (snapshot["media_found"]?.GetValue<bool>()!=true||snapshot["media_stale"]?.GetValue<bool>()==true)&&
            DateTime.UtcNow-lastMediaRegister>TimeSpan.FromSeconds(3))
         {
@@ -195,8 +211,8 @@ internal sealed class BrowserController : IAsyncDisposable
         if(embedded!=null)
         {
             var signedIn=snapshot["signed_in"]?.GetValue<bool>()==true;
-            embedded.SetSignedIn(service,signedIn);
-            if(!signedIn&&service=="yandex"){snapshot["connected"]=false;snapshot["error"]="Войдите в аккаунт: Настройки → Аккаунт.";}
+            if(service=="spotify")spotify?.SetSignedIn(signedIn);else embedded.SetSignedIn(service,signedIn);
+            if(!signedIn&&(service is "yandex" or "spotify")){snapshot["connected"]=false;snapshot["error"]="Войдите в аккаунт: Настройки → Аккаунт.";}
         }
         return snapshot;
     }
@@ -263,8 +279,8 @@ internal sealed class BrowserController : IAsyncDisposable
         {
             var page=await PageAsync(service,true);
             if(action=="open")return await ReadAsync(page,service);
-            if(embedded!=null&&service=="yandex"&&(await ReadAsync(page,service))["signed_in"]?.GetValue<bool>()!=true)
-                throw new InvalidOperationException("Сначала войдите в Яндекс: Настройки → Аккаунт → Войти.");
+            if(embedded!=null&&(service is "yandex" or "spotify")&&(await ReadAsync(page,service))["signed_in"]?.GetValue<bool>()!=true)
+                throw new InvalidOperationException("Сначала войдите в "+MusicServices.Name(service)+": Настройки → Аккаунт → Войти.");
             // NoDefaults preserves the user's ordinary browser state, including
             // disabled focus emulation. Temporarily focus just this music target
             // inside Chromium so background playback accepts trusted input.
@@ -301,6 +317,7 @@ internal sealed class BrowserController : IAsyncDisposable
             }
             if(action=="genre")
             {
+                if(service is "spotify" or "soundcloud")throw new InvalidOperationException("Подборки Моей волны доступны в Яндекс Музыке. Попросите включить конкретный трек.");
                 var url=service=="youtube"?"https://www.youtube.com/results?search_query=":new Uri(page.Url).GetLeftPart(UriPartial.Authority)+"/search?text=";
                 await page.GotoAsync(url+Uri.EscapeDataString(query+" плейлист"),new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=25000});
                 return await ReadAsync(page,service);
@@ -309,6 +326,7 @@ internal sealed class BrowserController : IAsyncDisposable
             {
                 if(string.IsNullOrWhiteSpace(query)||query.Length>200)throw new ArgumentException("Укажите название трека");
                 if(service=="youtube")await SearchYouTubeAsync(page,query);
+                else if(service is "spotify" or "soundcloud")await SearchServiceAsync(page,service,query,script);
                 else await SearchYandexAsync(page,query,script);
                 await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service,query=(string?)null});
             }
@@ -547,12 +565,25 @@ internal sealed class BrowserController : IAsyncDisposable
         await media.WaitForAsync(new(){State=WaitForSelectorState.Attached,Timeout=20000});
         await media.EvaluateAsync("async el => { if(el.paused) await el.play(); }");
     }
-    public ValueTask DisposeAsync()
+    internal static async Task SearchServiceAsync(IPage page,string service,string query,string script)
+    {
+        var url=service=="spotify"?"https://open.spotify.com/search/"+Uri.EscapeDataString(query)+"/tracks":
+            "https://soundcloud.com/search/sounds?q="+Uri.EscapeDataString(query);
+        await page.GotoAsync(url,new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=30000});
+        for(var i=0;i<40;i++)
+        {
+            var found=await page.EvaluateAsync<bool>(script,new{action="search_target",service,query});
+            if(found&&await ClickControlAsync(page,"search","search-card"))return;
+            await Task.Delay(250);
+        }
+        throw new InvalidOperationException("Не удалось включить трек в "+MusicServices.Name(service)+". Проверьте вход, доступность трека и закройте диалоги в окне сервиса.");
+    }
+    public async ValueTask DisposeAsync()
     {
         // Dispose the transport, then our own WebViews. Do not Browser.close a
         // user-owned browser used by the legacy diagnostic tools.
         playwright?.Dispose();
+        if(spotify!=null)await spotify.DisposeAsync();
         embedded?.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

@@ -13,6 +13,7 @@ static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => AppPaths.Log(e.ExceptionObject);
         if (args.Contains("--self-test")) { Environment.ExitCode = SelfTests.Run(); return; }
         if (args.Contains("--embedded-test")||args.Contains("--embedded-site-test")) { Environment.ExitCode = EmbeddedMusicTests.Run(args.Contains("--embedded-site-test")); return; }
+        if (args.Contains("--services-test")) { Environment.ExitCode = EmbeddedMusicTests.Run(services:true); return; }
         if (args.Contains("--assistant-test")) { Environment.ExitCode = DeepSeekTests.RunAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--configure-deepseek")) { Environment.ExitCode = DeepSeekTests.ConfigureAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--configure-gemini")) { Environment.ExitCode = DeepSeekTests.ConfigureAsync("gemini").GetAwaiter().GetResult(); return; }

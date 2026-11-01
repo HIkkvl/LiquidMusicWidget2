@@ -96,7 +96,7 @@ internal sealed class Settings
             ["show_paused"] = Flag("show_paused", false)
         };
     }
-    public string Service => Value["service"]?.GetValue<string>() == "youtube" ? "youtube" : "yandex";
+    public string Service => Value["service"]?.GetValue<string>() is string service&&MusicServices.Supported(service)?service:"yandex";
     public static JsonObject Defaults()
     {
         var result = new JsonObject();

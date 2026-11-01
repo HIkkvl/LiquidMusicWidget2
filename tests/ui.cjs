@@ -17,9 +17,10 @@ const {pathToFileURL} = require('node:url');
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null,service:window.service||'yandex'}),
      get_design:async()=>({ok:true,design:window.design||'aurora'}),
      set_design:async(design)=>{window.design=design;return {ok:true,design};},
+     set_service:async(service)=>{window.service=service;return {ok:true};},
      get_discord:async()=>({ok:true,enabled:false,status:'disabled'}),
      get_waves:async()=>window.waveError?{ok:false,error:'Войдите в Яндекс Музыку'}:{ok:true,waves:window.waves,wave_origin:'https://music.yandex.kz'},
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
@@ -219,6 +220,25 @@ const {pathToFileURL} = require('node:url');
  assert.equal(await page.locator('#connect-browser').isDisabled(),false);
  assert.ok((await page.locator('#connection-detail').textContent()).includes('Внутри приложения'));
  await page.screenshot({path:'tests/embedded-account-preview.png'});
+ await page.keyboard.press('Escape');
+ for(const service of ['spotify','soundcloud']){
+   await page.locator('[data-service='+service+']').click();
+   await page.waitForFunction(service=>document.body.dataset.service===service,service);
+   assert.equal(await page.locator('.brand strong').textContent(),service==='spotify'?'Spotify':'SoundCloud');
+   assert.ok(await page.locator('#service-search').isVisible());
+   assert.equal(await page.locator('.genres-section').isVisible(),false,'My Wave stays exclusive to Yandex');
+   await page.locator('#service-query').fill('Test Artist Test Song');
+   await page.locator('#service-search-play').click();
+   assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['search_play','Test Artist Test Song']);
+   await page.locator('#settings-button').click();
+   await page.locator('[data-settings-tab=browser]').click();
+   assert.ok((await page.locator('#browser-name').textContent()).includes(service==='spotify'?'Spotify':'SoundCloud'));
+   assert.equal(await page.locator('#yandex-domain').isVisible(),false);
+   await page.keyboard.press('Escape');
+   const serviceMetrics=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,bottom:document.querySelector('.bottom-hint').getBoundingClientRect().bottom,height:innerHeight}));
+   assert.equal(serviceMetrics.scroll,serviceMetrics.width);assert.ok(serviceMetrics.bottom<=serviceMetrics.height,JSON.stringify(serviceMetrics));
+   await page.screenshot({path:'tests/'+service+'-preview.png'});
+ }
  assert.deepEqual(errors,[]);
  await browser.close();
  console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, 7 settings tabs, embedded sign-in status, keyboard navigation, drafts across tabs, settings save, narrow/short viewport, no JS errors');

@@ -8,7 +8,7 @@ namespace LiquidMusic;
 
 internal static class EmbeddedMusicTests
 {
-    internal static int Run(bool liveSite=false)
+    internal static int Run(bool liveSite=false,bool services=false)
     {
         ApplicationConfiguration.Initialize();
         using var context=new ApplicationContext();
@@ -19,7 +19,7 @@ internal static class EmbeddedMusicTests
         start.Tick+=async(_,_)=>
         {
             start.Stop();
-            try{await CheckAsync(liveSite);code=0;}
+            try{if(services)await ServicePlayerTests.CheckHostsAsync();else await CheckAsync(liveSite);code=0;}
             catch(Exception error){AppPaths.Log(error);Write(new{ok=false,error=error.ToString()});}
             finally{timeout.Stop();context.ExitThread();}
         };

@@ -128,6 +128,23 @@ body[data-design] .track-meta .eyebrow.wave-active{display:inline-block;cursor:p
 .track-meta .eyebrow.wave-active:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
 .track-meta .eyebrow.wave-active:disabled{cursor:wait;opacity:.65}
 .source-pill{display:none}
+.service-search{flex:1;min-height:0;overflow:auto;padding:16px;border-radius:var(--radius-l)}
+.service-search[hidden]{display:none}
+.service-search p{font-size:12px;line-height:1.5;color:var(--text-2)}
+.service-search form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.service-search label{grid-column:1/-1;font-size:12px;color:var(--text-2)}
+.service-search input{min-width:0;width:100%;box-sizing:border-box;border:1px solid var(--stroke);border-radius:12px;padding:11px;background:rgba(0,0,0,.2);color:var(--text);font:inherit}
+.service-search button{border:0;border-radius:12px;padding:11px;background:var(--accent);color:white;font:inherit;cursor:pointer}
+.service-search button:disabled{opacity:.6;cursor:wait}
+.service-icon.sp{color:#071d10;background:#1ed760;font-size:30px;line-height:1}
+.service-icon.sc{color:white;background:#ff5500;font-size:22px;line-height:1}
+body[data-service="spotify"]{--blue:#1ed760;--indigo:#16a54c;--accent:linear-gradient(120deg,#1ed760,#16a54c)}
+body[data-service="soundcloud"]{--blue:#ff8a3c;--indigo:#ff5500;--accent:linear-gradient(120deg,#ff8a3c,#ff5500)}
+@media(max-height:650px){
+  .service-search{padding:10px;min-height:62px}
+  .service-search>h2,.service-search>p,.service-search label{display:none}
+  .service-search form{gap:8px}
+}
 
 .heart{position:absolute;right:-6px;top:-6px;color:var(--text);background:rgba(255,255,255,.06)}
 .heart svg{width:23px;height:23px}
@@ -257,7 +274,7 @@ input[type=range]:disabled{opacity:.4}
   box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 3px 10px rgba(255,180,60,.35);
 }
 .footer-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.footer-copy strong{font-size:13px;font-weight:600}
+.footer-copy strong{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .footer-copy span{font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .connection-dot{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.2);flex-shrink:0;box-shadow:inset 0 1px 1px rgba(0,0,0,.3)}
 .connection-dot.online{background:radial-gradient(circle at 35% 30%,#b6ffd9,#3ecf8e);box-shadow:0 0 10px rgba(60,220,140,.7)}

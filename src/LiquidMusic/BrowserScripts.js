@@ -31,11 +31,11 @@
     }
     return '';
   };
-  const playerSelector='[class*="PlayerBar"],ytmusic-player-bar,#movie_player';
+  const playerSelector=service==='spotify'?'[data-testid="now-playing-bar"],.Root__now-playing-bar':service==='soundcloud'?'.playControls':'[class*="PlayerBar"],ytmusic-player-bar,#movie_player';
   const players=[...document.querySelectorAll(playerSelector)];
   // Яндекс Музыка создаёт `new Audio()` и не кладёт его в DOM: такой элемент не найти через querySelectorAll.
   // Ловим его при play() и принимаем список, который приложение собрало через CDP (Runtime.queryObjects).
-  if(service==='yandex'&&!window.__lmHook){
+  if(service!=='youtube'&&!window.__lmHook){
     window.__lmHook=true;window.__lmMedia=window.__lmMedia||[];
     const nativePlay=HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play=function(...args){
@@ -72,20 +72,20 @@
   const media=playbackMedia.find(el=>!el.paused)||[...playbackMedia].reverse().find(usable)||playbackMedia[playbackMedia.length-1];
   const metadata=navigator.mediaSession?.metadata;
   const label=el=>[el.getAttribute('aria-label'),el.getAttribute('title')].filter(Boolean).join(' ');
-  const enabled=el=>!el.hasAttribute('disabled') && el.getAttribute('aria-disabled')!=='true' && el.getAttribute('data-disabled')!=='true';
+  const enabled=el=>!el.hasAttribute('disabled') && el.getAttribute('aria-disabled')!=='true' && el.getAttribute('data-disabled')!=='true'&&!el.classList.contains('disabled');
   const buttons=players.flatMap(root=>[...root.querySelectorAll('button,[role="button"],.ytp-next-button,.ytp-prev-button')]);
-  const playPattern=/^(?:воспроизведение|воспроизвести|слушать|продолжить|играть|play|resume|ойнату)(?:\s|$)/i;
+  const playPattern=/^(?:воспроизведение|воспроизвести|включить|слушать|продолжить|играть|play|resume|ойнату)(?:\s|$)/i;
   const hasPause=buttons.some(el=>enabled(el)&&/^(?:пауза|pause|кідірту)(?:\s|$)/i.test(label(el)));
   const hasPlay=buttons.some(el=>enabled(el)&&playPattern.test(label(el)));
   // Yandex can play the main track through its internal engine while a paused,
   // muted preview <video> remains in the document. Its state is not the player.
   const playing=service==='yandex'?(hasPause?true:hasPlay?false:navigator.mediaSession?.playbackState==='playing'||!!media&&!media.paused):media?!media.paused:navigator.mediaSession?.playbackState==='playing'||hasPause;
   const patterns={
-    next:/следующ|next|келесі/i, previous:/предыдущ|previous|алдыңғы/i,
+    next:/следующ|next|келесі|^далее$/i, previous:/предыдущ|previous|алдыңғы|^назад$/i,
     pause:/пауза|pause|кідірту/i,play:playPattern,
-    like:/мне нравится|понравивш|нравится|\blike\b|liked|unlike|ұнайды/i
+    like:/мне нравится|понравивш|нравится|\blike\b|liked|unlike|ұнайды|медиатек|любимые треки|save.*library|remove.*library|add.*library/i
   };
-  const volumeInput=document.querySelector('input[type="range"][aria-label*="громк" i],input[type="range"][aria-label*="volume" i]');
+  const volumeInput=document.querySelector('[data-testid="volume-bar"] input[type="range"],input[type="range"][aria-label*="громк" i],input[type="range"][aria-label*="volume" i]');
   // Read only rendered controls belonging to My Wave, never search results or account storage.
   const waveOptions=()=>{
     if(service!=='yandex')return [];
@@ -234,28 +234,32 @@
     else if(defaultWaveControl()&&/^(?:пауза|pause)(?:$|\s)/i.test(label(defaultWaveControl())))window.__liquidWaveSelection=null;
     const waveItems=options.map(({element,container,...item})=>item);
     const signedIn=service==='yandex'?!!document.querySelector('[class*="UserProfile_userName"]')||waveItems.length>0:
+      service==='spotify'?!!document.querySelector('[data-testid="user-widget-link"],[data-testid="user-widget-avatar"]'):
+      service==='soundcloud'?!!document.querySelector('.header__userNavUsernameButton,.header__userNavAvatar'):
       !!document.querySelector('ytmusic-user-avatar,button#avatar-btn');
     const image=players.flatMap(root=>[...root.querySelectorAll('img')])[0];
-    const trackLink=players.flatMap(root=>[...root.querySelectorAll('a[href*="/track/"],a[href*="/tracks/"],a[href*="watch?v="]')])[0]
+    const trackLink=players.flatMap(root=>[...root.querySelectorAll('.playbackSoundBadge__titleLink,a[href*="/track/"],a[href*="/tracks/"],a[href*="watch?v="]')])[0]
       ||(/\/track\/\d+/.test(location.pathname)?{href:location.href}:null)
       ||players.flatMap(root=>[...root.querySelectorAll('a[href*="/album/"]')])[0];
     const streamUrl=media?.currentSrc||media?.src||'';
     let position=Number.isFinite(media?.currentTime)?media.currentTime:0,duration=Number.isFinite(media?.duration)?media.duration:0,timeSource=duration>0?'media':'none';
     if(!(duration>0)){const fallback=timeFromPlayer();if(fallback){position=fallback.position;duration=fallback.duration;timeSource=fallback.source;}}
-    const like=buttons.find(el=>patterns.like.test(label(el))&&!/не нравится|dislike|ұнамайды/i.test(label(el)))||document.querySelector('#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button');
+    const like=document.querySelector(service==='soundcloud'?'.playbackSoundBadge .sc-button-like':service==='spotify'?'[data-testid="now-playing-widget"] [data-testid="add-button"]':'#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button')||buttons.find(el=>patterns.like.test(label(el))&&!/не нравится|dislike|ұнамайды/i.test(label(el)));
+    const badgeArt=document.querySelector('.playbackSoundBadge__avatar .sc-artwork,.playbackSoundBadge__avatar');
+    const backgroundArt=badgeArt?getComputedStyle(badgeArt).backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1]:'';
     return {
       connected:true,service,signed_in:signedIn,wave_origin:location.origin,waves:waveItems,
       active_wave:service==='yandex'?window.__liquidWaveSelection||null:null,
-      title:metadata?.title||text(['[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
-      artist:metadata?.artist||text(['[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
+      title:metadata?.title||text(['[data-testid="context-item-info-title"]','.playbackSoundBadge__titleLink','[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
+      artist:metadata?.artist||text(['[data-testid="context-item-info-artist"]','.playbackSoundBadge__lightLink','[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
       album:metadata?.album||'',
-      artwork:metadata?.artwork?.at(-1)?.src||image?.currentSrc||image?.src||'',
+      artwork:metadata?.artwork?.at(-1)?.src||image?.currentSrc||image?.src||backgroundArt||'',
       track_url:trackLink?new URL(trackLink.href,location.href).href:'',page_url:location.href,
       stream_url:/^https?:\/\//i.test(streamUrl)?streamUrl:'',user_agent:navigator.userAgent,
-      playing,liked:like?.getAttribute('aria-pressed')==='true'||/убрать|unlike|remove from/i.test(label(like||document.createElement('i'))),
+      playing,liked:like?.getAttribute('aria-pressed')==='true'||like?.getAttribute('aria-checked')==='true'||like?.classList.contains('sc-button-selected')||/убрать|unlike|remove from|удалить.*медиатек/i.test(label(like||document.createElement('i'))),
       media_found:!!media,media_stale:!!(media&&media.paused&&hasPause),
       position,duration,time_source:timeSource,stream_kind:/^https?:/i.test(streamUrl)?'direct':streamUrl.startsWith('blob:')?'blob':'none',
-      volume:media?.volume??(volumeInput?(Number(volumeInput.value)-Number(volumeInput.min||0))/(Number(volumeInput.max||100)-Number(volumeInput.min||0)):null),error:''
+      volume:volumeInput?(Number(volumeInput.value)-Number(volumeInput.min||0))/(Number(volumeInput.max||100)-Number(volumeInput.min||0)):media?.volume??(service==='soundcloud'?Number(document.querySelector('.volume__sliderWrapper')?.getAttribute('aria-valuenow')??1):null),error:''
     };
   }
   document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
@@ -273,11 +277,28 @@
       const selector=target==='next'?'.ytp-next-button':target==='previous'?'.ytp-prev-button':target==='like'?'#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button,ytmusic-like-button-renderer button':'.ytp-play-button,ytmusic-player-bar #play-pause-button';
       button=document.querySelector(selector);
     }
+    if(service==='spotify')button=document.querySelector(target==='next'?'[data-testid="control-button-skip-forward"]':target==='previous'?'[data-testid="control-button-skip-back"]':target==='like'?'[data-testid="now-playing-widget"] [data-testid="add-button"]':'[data-testid="control-button-playpause"]');
+    if(service==='soundcloud')button=document.querySelector(target==='next'?'.playControls__next':target==='previous'?'.playControls__prev':target==='like'?'.playbackSoundBadge .sc-button-like':'.playControls__play');
     button ||= buttons.find(el=>enabled(el)&&patterns[target]?.test(label(el))&&!(target==='like'&&/не нравится|dislike/i.test(label(el))));
     if(!button||!enabled(button))return {found:false};
     button.setAttribute('data-liquid-control','target');return {found:true};
   }
   if(action==='search_target'||action==='search_click'||action==='search_match') {
+    if(service==='spotify'||service==='soundcloud'){
+      const words=norm(query).split(' ').filter(Boolean);if(!words.length)return false;
+      const rows=document.querySelectorAll(service==='spotify'?'[data-testid="tracklist-row"]':'.soundList__item,.searchList__item .sound,.searchItem .sound');
+      for(const row of rows){
+        const fragments=[],walker=document.createTreeWalker(row,NodeFilter.SHOW_TEXT);
+        for(let node=walker.nextNode();node;node=walker.nextNode())fragments.push(node.nodeValue);
+        const full=' '+norm(fragments.join(' ')+' '+(row.getAttribute('aria-label')||''))+' ';
+        if(!words.every(word=>full.includes(' '+word+' ')))continue;
+        if(action==='search_match')return true;
+        const button=[...row.querySelectorAll('button,[role="button"]')].find(el=>enabled(el)&&(playPattern.test(label(el))||el.classList.contains('sc-button-play')));
+        if(!button)continue;
+        row.setAttribute('data-liquid-control','search-card');button.setAttribute('data-liquid-control','search');return true;
+      }
+      return false;
+    }
     const links=[...document.querySelectorAll('a[href*="/track/"],a[href*="/tracks/"]')].filter(el=>!el.closest(playerSelector));
     const words=norm(query).split(' ').filter(Boolean);
     if(!words.length)return false;

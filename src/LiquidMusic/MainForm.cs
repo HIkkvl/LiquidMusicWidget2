@@ -266,7 +266,7 @@ internal sealed class MainForm : Form
                 if(!await SetupBrowserFromUiAsync(Arg(0)?.GetValue<bool>()??true))return new{ok=false,cancelled=true,browser=browser.Status()};
                 return new{ok=true,browser=browser.Status()};
             case "set_service":
-                var service=Arg(0)!.GetValue<string>();if(service is not("yandex" or "youtube"))throw new ArgumentException("Неизвестный сервис");
+                var service=Arg(0)!.GetValue<string>();if(!MusicServices.Supported(service))throw new ArgumentException("Неизвестный сервис");
                 if(service!=settings.Service&&snapshot["playing"]?.GetValue<bool>()==true)
                 {
                     try{await browser.CommandAsync(settings.Service,"pause");}
