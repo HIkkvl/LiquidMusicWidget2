@@ -21,6 +21,7 @@ static class Program
         if (args.Contains("--connection-test")) { Environment.ExitCode = BrowserConnectionTests.RunAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--browser-test")) { Environment.ExitCode = SelfTests.BrowserAsync().GetAwaiter().GetResult(); return; }
         if (args.Contains("--live-test")) { Environment.ExitCode = SelfTests.LiveAsync(args.ElementAtOrDefault(Array.IndexOf(args,"--live-test")+1)??"Династия").GetAwaiter().GetResult(); return; }
+        if (args.Contains("--wave-test")) { Environment.ExitCode = SelfTests.WaveLiveAsync(args.ElementAtOrDefault(Array.IndexOf(args,"--wave-test")+1)??"Это поп!").GetAwaiter().GetResult(); return; }
         if (args.Contains("--diagnose-browser"))
         {
             try { SelfTests.DiagnoseAsync().GetAwaiter().GetResult(); } catch(Exception e){AppPaths.Log(e);Environment.ExitCode=1;}return;

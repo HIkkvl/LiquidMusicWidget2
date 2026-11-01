@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8">
+<!-- Reduced structure from the My Wave recommendation wheel; no account data. -->
+<style>
+body{margin:0}.swiper{position:absolute;top:80px;left:80px;width:360px;height:180px;overflow:hidden}
+.swiper-slide{height:210px}.WheelItem_root{width:350px;height:150px}
+.PlayButtonWithCover_playButton{width:64px;height:64px}
+</style>
+<div class="DefaultLayout_rootNewVibe">
+ <div class="PlayerBar_root"><span class="Meta_title">Старый трек</span><button aria-label="Пауза"></button></div>
+ <div class="VibePage_root">
+  <section class="swiper WheelDesktop_root" aria-label="Рекомендации моей волны">
+   <div class="swiper-wrapper">
+    <div class="swiper-slide" data-swiper-slide-index="0"><div class="WheelItem_root" aria-label="Моя волна по жанру Это поп!">
+     <div class="WheelItem_titleContainer"><span class="WheelItem_title">Это поп!</span></div>
+     <button class="PlayButtonWithCover_playButton" aria-label="Воспроизведение" data-wave="pop"></button>
+    </div></div>
+    <div class="swiper-slide" data-swiper-slide-index="1"><div class="WheelItem_root" aria-label="Моя волна по жанру Русский рок">
+     <a href="/artist/unrelated">Посторонняя ссылка</a>
+     <div class="WheelItem_titleContainer"><span class="WheelItem_title">Русский рок</span></div>
+     <button class="PlayButtonWithCover_playButton" aria-label="Воспроизведение" data-wave="rock"></button>
+    </div></div>
+   </div>
+  </section>
+  <button class="VibeBigCard_title">CUPSIZE</button>
+  <button class="VibeBigCard_aiCard">Текст о текущем треке</button>
+ </div>
+</div>
+<script>
+window.scrollCalls=0;window.waveClicks=[];window.slideCalls=[];
+Element.prototype.scrollIntoView=function(){window.scrollCalls++;throw Error('Do not scroll the recommendation wheel');};
+const wheel=document.querySelector('.swiper');
+wheel.swiper={activeIndex:0,slides:[...wheel.querySelectorAll('.swiper-slide')],slideTo(index){
+ this.activeIndex=index;window.slideCalls.push(index);
+ wheel.querySelector('.swiper-wrapper').style.transform='translateY(-'+index*210+'px)';
+}};
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-wave]');
+ if(!button||!event.isTrusted)return;
+ window.waveClicks.push(button.dataset.wave);
+ button.setAttribute('aria-label','Пауза');
+ document.querySelector('.Meta_title').textContent='Новый трек';
+});
+</script>

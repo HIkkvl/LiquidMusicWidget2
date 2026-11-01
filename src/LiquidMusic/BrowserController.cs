@@ -187,7 +187,15 @@ internal sealed class BrowserController : IAsyncDisposable
             var detail=await page.EvaluateAsync<JsonElement>("""
             () => ({url:location.origin+location.pathname,activation:{active:navigator.userActivation?.isActive,ever:navigator.userActivation?.hasBeenActive},media:[...document.querySelectorAll('audio,video')].map(el=>({paused:el.paused,muted:el.muted,ready:el.readyState,position:el.currentTime,duration:Number.isFinite(el.duration)?el.duration:0})),playerText:[...document.querySelectorAll('[class*="PlayerBar"]')].slice(0,3).map(el=>el.innerText?.slice(0,500)),buttons:[...document.querySelectorAll('[class*="PlayerBar"] button')].map(el=>({label:el.getAttribute('aria-label'),cls:el.className,disabled:el.disabled})).slice(0,20),dialogs:[...document.querySelectorAll('[role="dialog"]')].map(el=>el.innerText?.slice(0,400))})
             """);
-            return new{state,detail};
+            var waveLayout=await page.EvaluateAsync<JsonElement>("""
+                ()=>({scroll:{x:scrollX,y:scrollY,width:innerWidth,height:innerHeight},
+                  wheels:[...document.querySelectorAll('[aria-label="Рекомендации моей волны"]')].map(el=>({
+                    html:el.outerHTML.slice(0,70000),
+                    swiper:el.swiper?{activeIndex:el.swiper.activeIndex,realIndex:el.swiper.realIndex,slides:el.swiper.slides?.length,slideTo:typeof el.swiper.slideTo,slideToLoop:typeof el.swiper.slideToLoop}:null,
+                    cards:[...el.querySelectorAll('[class*="WheelItem_root"]')].map(card=>({label:card.getAttribute('aria-label'),cls:card.className,slide:card.closest('[data-swiper-slide-index]')?.getAttribute('data-swiper-slide-index'),rect:card.getBoundingClientRect().toJSON(),buttons:[...card.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),cls:button.className,rect:button.getBoundingClientRect().toJSON(),pointer:getComputedStyle(button).pointerEvents}))}))
+                  }))})
+                """);
+            return new{state,detail,waveLayout};
         }
         finally{gate.Release();}
     }
@@ -210,12 +218,15 @@ internal sealed class BrowserController : IAsyncDisposable
                 if(action=="wave"&&(string.IsNullOrWhiteSpace(query)||query.Length>100))throw new ArgumentException("Выберите подборку Моей волны.");
                 var options=await WaveOptionsAsync(page,script,action=="wave"?query:null);
                 if(action=="wave_list")return new(){["waves"]=JsonNode.Parse(options.GetRawText()),["wave_origin"]=new Uri(page.Url).GetLeftPart(UriPartial.Authority)};
+                var beforeWave=await ReadAsync(page,service);
                 if(!await ClickWaveAsync(page,script,query!))throw new InvalidOperationException("Не удалось нажать подборку. Обновите список; если в музыкальной вкладке открыт диалог, закройте его.");
                 for(var i=0;i<40;i++)
                 {
                     await Task.Delay(250);
                     var state=await ReadAsync(page,service);
-                    if(state["playing"]?.GetValue<bool>()==true)return state;
+                    var station=await page.EvaluateAsync<JsonElement>(script,new{action="wave_status",service,query});
+                    var changed=new[]{"title","artist","track_url"}.Any(field=>state[field]?.ToJsonString()!=beforeWave[field]?.ToJsonString());
+                    if(state["playing"]?.GetValue<bool>()==true&&(station.GetProperty("playing").GetBoolean()||changed))return state;
                 }
                 throw new InvalidOperationException("Подборка выбрана, но воспроизведение не началось. Проверьте вход и подписку в Яндекс Музыке.");
             }
@@ -364,7 +375,7 @@ internal sealed class BrowserController : IAsyncDisposable
             ({marker,check})=>{
               const el=document.querySelector(marker==='wave-card'?'[data-liquid-wave-card]':'[data-liquid-control="'+CSS.escape(marker)+'"]');
               if(!el)return null;
-              if(!check)el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+              if(!check&&!marker.startsWith('wave'))el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
               const style=getComputedStyle(el);
               if(check&&(style.visibility==='hidden'||style.display==='none'||el.disabled||el.getAttribute('aria-disabled')==='true'))return null;
               // Carousels clip and transform cards; inline links can have several
@@ -420,6 +431,10 @@ internal sealed class BrowserController : IAsyncDisposable
         // that control or animate it into view, so resolve it again on retries.
         for(var attempt=0;attempt<10;attempt++)
         {
+            var status=await page.EvaluateAsync<JsonElement>(script,new{action="wave_status",service="yandex",query});
+            if(status.GetProperty("playing").GetBoolean())return true;
+            var reveal=await page.EvaluateAsync<JsonElement>(script,new{action="wave_reveal",service="yandex",query});
+            if(reveal.TryGetProperty("blocked",out var blocked)&&blocked.GetBoolean())return false;
             var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query});
             if(target.GetProperty("found").GetBoolean()&&await ClickControlAsync(page,"wave","wave-card"))return true;
             await Task.Delay(150);

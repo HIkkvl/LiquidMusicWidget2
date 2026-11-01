@@ -230,6 +230,18 @@ internal static class SelfTests
             Check(!await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Real overlay still prevents clicking a wave");
             Check(await page.EvaluateAsync<int>("()=>window.waveClicks.length")==0,"Never click through an actual overlay");
             passed.Add("Dynamic My Wave cards, regional navigation, clipped/hover controls and real overlay rejection");
+            var wheelFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave-wheel.html"));
+            await page.UnrouteAllAsync();
+            await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=wheelFixture}));
+            await page.GotoAsync("https://music.yandex.kz/");
+            var wheelOptions=await page.EvaluateAsync<JsonElement>(script,new{action="wave_list",service="yandex"});
+            Check(wheelOptions.GetArrayLength()==2,"Only actual wheel recommendations, excluding hero and AI cards");
+            Check(wheelOptions[1].GetProperty("title").GetString()=="Русский рок","Use station title, excluding nested artist link");
+            Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Reveal offscreen station through Swiper and click its Play button");
+            Check(await page.EvaluateAsync<bool>("()=>window.scrollCalls===0&&window.waveClicks.join(',')==='rock'&&window.slideCalls.join(',')==='1'&&scrollX===0&&scrollY===0&&document.querySelector('.swiper').scrollTop===0"),"No native scrolling or unrelated link clicks");
+            Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Already playing station succeeds without toggling pause");
+            Check(await page.EvaluateAsync<int>("()=>window.waveClicks.length")==1,"Do not pause the selected wave");
+            passed.Add("Real wheel structure, Swiper reveal, correct station controls, no layout scrolling or pause toggle");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}
@@ -252,5 +264,15 @@ internal static class SelfTests
     {
         await using var controller=new BrowserController();
         Write("browser-diagnostic.json",await controller.DiagnoseAsync("yandex"));
+    }
+    public static async Task<int> WaveLiveAsync(string query)
+    {
+        try
+        {
+            await using var controller=new BrowserController();
+            var result=await controller.CommandAsync("yandex","wave",query);
+            Write("wave-live-test.json",new{ok=true,query,result});return 0;
+        }
+        catch(Exception error){AppPaths.Log(error);Write("wave-live-test.json",new{ok=false,query,error=error.ToString()});return 1;}
     }
 }

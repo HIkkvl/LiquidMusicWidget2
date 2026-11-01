@@ -89,11 +89,13 @@
   // Read only rendered controls belonging to My Wave, never search results or account storage.
   const waveOptions=()=>{
     if(service!=='yandex')return [];
-    const roots=[...document.querySelectorAll('[class*="vibe" i],[class*="mywave" i],[class*="my-wave" i],[aria-label="Моя волна"]')];
+    const wheels=[...document.querySelectorAll('[aria-label="Рекомендации моей волны"],[class*="WheelDesktop_root"],[class*="WheelMobile_root"]')];
+    const roots=wheels.length?wheels:[...document.querySelectorAll('[class*="VibeBlock_root"],[class*="VibePage_root"],[aria-label="Моя волна"]')];
     const interactive='button,[role="button"],a,[tabindex="0"]';
     const card=el=>String(el.className).split(/\s+/).some(name=>/(?:item|card|slide|option|pin)(?:_|$)/i.test(name)&&!/(?:^|_)(?:list|items|cards|container|content|title|image|icon|cover|text)(?:_|$)/i.test(name));
     const candidates=new Set();
     for(const root of roots){
+      if(wheels.length){for(const el of root.querySelectorAll('[class*="WheelItem_root"]'))candidates.add(el);continue;}
       if(root.matches(interactive)||card(root))candidates.add(root);
       for(const el of root.querySelectorAll(interactive+',[class*="item" i],[class*="card" i],[class*="slide" i],[class*="option" i],[class*="pin" i]')){
         if(el.matches(interactive)||card(el))candidates.add(el);
@@ -104,18 +106,39 @@
       if(el.closest('nav,aside,'+playerSelector)||el.hidden||getComputedStyle(el).display==='none'||getComputedStyle(el).visibility==='hidden')continue;
       // Use the outer clickable card when its children repeat the same title.
       if([...candidates].some(parent=>parent!==el&&parent.contains(el)&&card(parent)))continue;
-      const title=(el.innerText?.trim()||el.getAttribute('aria-label')||el.querySelector('img')?.alt||'').replace(/\s+/g,' ').trim();
+      const wheelTitle=el.querySelector('[class*="WheelItem_title"]')?.textContent;
+      const description=el.querySelector('[class*="WheelItem_description"]')?.textContent;
+      const title=(wheelTitle?[description,wheelTitle].filter(Boolean).join(' '):el.innerText?.trim()||el.getAttribute('aria-label')||el.querySelector('img')?.alt||'').replace(/\s+/g,' ').trim();
       if(!title||title.length>100||/^(?:моя волна|воспроизведение|воспроизвести|слушать|пауза|настроить|настройки|войти|play|pause|settings|закрыть|далее|назад)(?:$|[ :])/i.test(title)||seen.has(title))continue;
       const rect=el.getBoundingClientRect();if(!rect.width||!rect.height)continue;
       const image=el.querySelector('img');
       const artwork=image?.currentSrc||image?.src||'';
-      const control=el.matches(interactive)?el:el.querySelector('button,[role="button"],a')||el;
+      const control=el.matches(interactive)?el:[...el.querySelectorAll('button,[role="button"]')].find(button=>/^(?:воспроизведение|воспроизвести|слушать|пауза|play|pause)(?:$|\s)/i.test(label(button)))||el;
+      if(wheels.length&&control===el&&!/^Встряхнуть/i.test(title))continue;
       seen.add(title);result.push({id:title,title,artwork:/^https:\/\//i.test(artwork)?artwork:'',disabled:!enabled(el)||!enabled(control),element:control,container:el});
       if(result.length>=60)break;
     }
     return result;
   };
   if(action==='wave_list')return waveOptions().map(({element,container,...item})=>item);
+  if(action==='wave_status'){
+    const item=waveOptions().find(item=>item.id===query);
+    return {found:!!item,playing:!!item&&/^(?:пауза|pause)(?:$|\s)/i.test(label(item.element))};
+  }
+  if(action==='wave_reveal'){
+    const item=waveOptions().find(item=>item.id===query&&!item.disabled);
+    if(!item)return {found:false};
+    const dialog=[...document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')].some(el=>el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden');
+    if(dialog)return {found:true,blocked:true};
+    const slide=item.container.closest('[data-swiper-slide-index],.swiper-slide');
+    const wheel=slide?.closest('.swiper');
+    const swiper=wheel?.swiper;
+    if(swiper&&typeof swiper.slideTo==='function'){
+      const index=Array.from(swiper.slides||[]).indexOf(slide);
+      if(index>=0&&swiper.activeIndex!==index)swiper.slideTo(index,0,true);
+    }
+    return {found:true};
+  }
   if(action==='wave_target'){
     document.querySelectorAll('[data-liquid-control],[data-liquid-wave-card]').forEach(el=>{el.removeAttribute('data-liquid-control');el.removeAttribute('data-liquid-wave-card');});
     const item=waveOptions().find(item=>item.id===query&&!item.disabled);
