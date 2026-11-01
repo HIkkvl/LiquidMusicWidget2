@@ -304,7 +304,9 @@ internal sealed partial class BrowserController : IAsyncDisposable
                 if(service!="spotify")throw new InvalidOperationException("Выберите Spotify.");
                 var playlistUrl=SpotifyPlaylists.NormalizeUrl(query??"");
                 var playlistAccount=await SpotifyAccountAsync(page,script);
-                var playlistState=await StartSpotifyPlaylistAsync(page,script,playlistUrl);
+                var knownPlaylist=SpotifyPlaylists.Merge(SpotifyPlaylists.Saved(settings,playlistAccount),spotifyCatalog.GetValueOrDefault(playlistAccount)??new())
+                    .OfType<JsonObject>().FirstOrDefault(item=>item["url"]?.GetValue<string>()==playlistUrl);
+                var playlistState=await StartSpotifyPlaylistAsync(page,script,playlistUrl,knownPlaylist?["title"]?.GetValue<string>());
                 SpotifyPlaylists.UpdateDetails(settings,playlistAccount,playlistUrl,playlistState["spotify_playlist_title"]?.GetValue<string>()??"",playlistState["spotify_playlist_artwork"]?.GetValue<string>()??"");
                 return playlistState;
             }
@@ -344,9 +346,11 @@ internal sealed partial class BrowserController : IAsyncDisposable
                 await page.GotoAsync(url+Uri.EscapeDataString(query+" плейлист"),new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=25000});
                 return await ReadAsync(page,service);
             }
+            JsonObject? beforeControl=null;
             if(action=="search_play")
             {
                 if(string.IsNullOrWhiteSpace(query)||query.Length>200)throw new ArgumentException("Укажите название трека");
+                if(service=="spotify")await page.EvaluateAsync<JsonElement>(script,new{action="spotify_playlist_selected",service,query=(object?)null});
                 if(service=="youtube")await SearchYouTubeAsync(page,query);
                 else if(service is "spotify" or "soundcloud")await SearchServiceAsync(page,service,query,script);
                 else await SearchYandexAsync(page,query,script);
@@ -360,10 +364,17 @@ internal sealed partial class BrowserController : IAsyncDisposable
             else
             {
                 if(action is not("next" or "previous" or "pause" or "stop" or "play" or "play_pause" or "like"))throw new ArgumentException("Неизвестная команда");
+                if(service=="spotify")beforeControl=await ReadAsync(page,service);
                 var result=await page.EvaluateAsync<JsonElement>(script,new{action="target",command=action,service});
                 if(result.TryGetProperty("already",out var already)&&already.GetBoolean())return await ReadAsync(page,service);
-                if(!result.TryGetProperty("found",out var found)||!found.GetBoolean())throw new InvalidOperationException("На сайте не найдена кнопка «"+action+"». Проверьте вход в аккаунт и доступность плеера.");
-                if(!await ClickControlAsync(page,"target"))throw new InvalidOperationException("Кнопка плеера перекрыта. Закройте диалог в музыкальной вкладке и повторите.");
+                var found=result.TryGetProperty("found",out var buttonFound)&&buttonFound.GetBoolean();
+                var clicked=found&&await ClickControlAsync(page,"target");
+                if(!clicked&&service=="spotify"&&action!="like")
+                {
+                    var mediaCommand=await page.EvaluateAsync<JsonElement>(script,new{action="spotify_media_command",service,command=action});
+                    clicked=mediaCommand.GetProperty("ok").GetBoolean();
+                }
+                if(!clicked)throw new InvalidOperationException(found?"Кнопка плеера перекрыта. Закройте диалог в музыкальной вкладке и повторите.":"На сайте не найдена кнопка «"+action+"». Проверьте вход в аккаунт и доступность плеера.");
             }
             // A successful click is not a playback confirmation.
             var resumed=false;
@@ -379,6 +390,18 @@ internal sealed partial class BrowserController : IAsyncDisposable
                 }
                 if(action is "pause" or "stop" && !playing)return snapshot;
                 if(action=="play"&&playing)return snapshot;
+                if(service=="spotify"&&beforeControl!=null)
+                {
+                    if(action=="play_pause")
+                    {if(playing!=(beforeControl["playing"]?.GetValue<bool>()==true))return snapshot;continue;}
+                    if(action is "next" or "previous")
+                    {
+                        var changed=new[]{"title","artist","track_url"}.Any(key=>snapshot[key]?.ToJsonString()!=beforeControl[key]?.ToJsonString());
+                        var restarted=(beforeControl["position"]?.GetValue<double>()??0)-(snapshot["position"]?.GetValue<double>()??0)>1;
+                        if(changed||restarted)return snapshot;
+                        continue;
+                    }
+                }
                 if(action is not("search_play" or "pause" or "stop" or "play"))return snapshot;
             }
             throw new InvalidOperationException("Кнопка нажата, но сайт не подтвердил воспроизведение. Проверьте вход, подписку и ограничения автозапуска в браузере.");

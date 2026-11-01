@@ -19,7 +19,7 @@ const {pathToFileURL} = require('node:url');
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null,service:window.service||'yandex',spotify_account:window.spotifyAccount,active_spotify_playlist:window.spotifyActive||null}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:window.service==='spotify'?window.spotifyPlaying!==false:true,liked:false,connected:!window.browserStatus.embedded||!!window.browserStatus.signed_in,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz',active_wave:window.activeWave||null,service:window.service||'yandex',spotify_account:window.spotifyAccount,active_spotify_playlist:window.spotifyActive||null,spotify_playlist_title:window.spotifyTitle||''}),
      get_design:async()=>({ok:true,design:window.design||'aurora'}),
      set_design:async(design)=>{window.design=design;return {ok:true,design};},
      set_service:async(service)=>{window.service=service;return {ok:true};},
@@ -34,7 +34,19 @@ const {pathToFileURL} = require('node:url');
      },
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
-     command:async(...args)=>{window.calls.push(args);if(args[0]==='spotify_playlist')window.spotifyActive=args[1].split('/').at(-1);if(args[0]==='wave')window.activeWave=args[1];if(args[0]==='wave_reset'){if(window.failWaveReset)return {ok:false,error:'Не удалось включить Мою волну'};window.activeWave=null;}return {ok:true};},
+     command:async(...args)=>{
+       window.calls.push(args);
+       if(args[0]==='spotify_playlist'){window.spotifyActive=args[1].split('/').at(-1);window.spotifyTitle='Added from link';window.spotifyPlaying=true;}
+       if(args[0]==='wave')window.activeWave=args[1];
+       if(args[0]==='wave_reset'){if(window.failWaveReset)return {ok:false,error:'Не удалось включить Мою волну'};window.activeWave=null;}
+       if(window.service==='spotify'){
+         if(args[0]==='stop')window.spotifyPlaying=false;
+         if(args[0]==='play_pause')window.spotifyPlaying=!window.spotifyPlaying;
+         if(args[0]==='search_play'){window.spotifyActive=null;window.spotifyTitle='';}
+         return {ok:true,service:'spotify',connected:true,playing:window.spotifyPlaying!==false,active_spotify_playlist:window.spotifyActive||null,spotify_playlist_title:window.spotifyTitle||''};
+       }
+       return {ok:true};
+     },
      setup_browser:async(persist)=>{
        if(window.browserStatus.embedded){window.accountShown=true;return {ok:true,browser:window.browserStatus};}
        if(window.cancelSetup)return {ok:false,cancelled:true,browser:window.browserStatus};
@@ -253,6 +265,15 @@ const {pathToFileURL} = require('node:url');
      assert.equal(await page.locator('.spotify-playlist').count(),3);
      await page.locator('.spotify-playlist').last().click();
      assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['spotify_playlist','https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL']);
+     assert.equal(await page.locator('#track-context').textContent(),'Added from link','Playlist name appears immediately after playback starts');
+     await page.locator('#stop-button').click();
+     assert.equal(await page.locator('#track-context').textContent(),'Added from link','Stopping preserves the playlist name');
+     await page.locator('#play-button').click();
+     await page.locator('[data-command=next]').click();
+     await page.evaluate(()=>poll());
+     assert.equal(await page.locator('#track-context').textContent(),'Added from link','Track switching and polling preserve playlist context');
+     assert.ok(await page.locator('#track-context').isVisible(),'Playlist context remains visible in the compact widget');
+     await page.screenshot({path:'tests/spotify-context-preview.png'});
      await page.evaluate(async()=>{window.spotifyAccount='account-b';await poll();});
      await page.waitForFunction(()=>document.querySelectorAll('.spotify-playlist').length===0);
      await page.evaluate(async()=>{window.spotifyAccount='account-a';await poll();});
@@ -263,6 +284,7 @@ const {pathToFileURL} = require('node:url');
    await page.locator('#service-query').fill('Test Artist Test Song');
    await page.locator('#service-search-play').click();
    assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['search_play','Test Artist Test Song']);
+   if(service==='spotify')assert.equal(await page.locator('#track-context').evaluate(el=>el.classList.contains('playlist-active')),false,'Track search clears the old playlist context');
    await page.locator('#settings-button').click();
    await page.locator('[data-settings-tab=browser]').click();
    assert.ok((await page.locator('#browser-name').textContent()).includes(service==='spotify'?'Spotify':'SoundCloud'));

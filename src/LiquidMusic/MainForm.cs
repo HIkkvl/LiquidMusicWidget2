@@ -200,7 +200,7 @@ internal sealed class MainForm : Form
         result["user"]=live["user"]?.DeepClone();result["active"]=live["active"]?.DeepClone();
         return result;
     }
-    private object State()=>new JsonObject(snapshot.Select(pair=>KeyValuePair.Create(pair.Key,pair.Value?.DeepClone())))
+    private JsonObject State()=>new JsonObject(snapshot.Select(pair=>KeyValuePair.Create(pair.Key,pair.Value?.DeepClone())))
     {
         ["voice"]=voice.Snapshot(),["quality"]=settings.Value["quality"]?.DeepClone(),["service"]=settings.Service,["browser"]=browser.Status()
     };
@@ -269,7 +269,7 @@ internal sealed class MainForm : Form
             case "cancel_voice":voice.Cancel();break;
             case "command":
                 var action=Arg(0)!.GetValue<string>();
-                await RunCommandAsync(action,Arg(1));break;
+                await RunCommandAsync(action,Arg(1));var playback=State();playback["ok"]=true;return playback;
             case "open_music":await SetupBrowserFromUiAsync(false);break;
             case "setup_browser":
                 if(!await SetupBrowserFromUiAsync(Arg(0)?.GetValue<bool>()??true))return new{ok=false,cancelled=true,browser=browser.Status()};

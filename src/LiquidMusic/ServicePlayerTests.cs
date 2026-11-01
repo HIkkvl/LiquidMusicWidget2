@@ -61,6 +61,7 @@ internal static class ServicePlayerTests
         {
             await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=Fixture(service)}));
             await BrowserController.SearchServiceAsync(page,service,"Test Artist Test Song",script);
+            await page.WaitForFunctionAsync("()=>!document.querySelector('audio').paused&&document.getElementById('play').getAttribute('aria-label')==='Pause'",null,new(){Timeout=5000});
             var state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service});
             Check(state.GetProperty("playing").GetBoolean()&&state.GetProperty("signed_in").GetBoolean()&&state.GetProperty("title").GetString()=="Test Song","Trusted search starts matching song");
             Check(state.GetProperty("artist").GetString()=="Test Artist","Correct artist metadata");
@@ -71,6 +72,7 @@ internal static class ServicePlayerTests
             {
                 await page.EvaluateAsync<JsonElement>(script,new{action="target",service,command});
                 Check(await BrowserController.ClickControlAsync(page,"target"),"Trusted "+command);
+                if(command is "pause" or "play")await page.WaitForFunctionAsync("playing=>document.getElementById('play').getAttribute('aria-label')===(playing?'Pause':'Play')",command=="play",new(){Timeout=5000});
                 state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service});
                 if(command is "pause" or "play")Check(state.GetProperty("playing").GetBoolean()==(command=="play"),"Playback state after "+command);
                 if(command=="next")Check(state.GetProperty("title").GetString()=="Next Song","Skip updates track");

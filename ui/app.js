@@ -33,8 +33,10 @@ async function invoke(method,...args) {
   catch(error) { return {ok:false,error:'Не удалось выполнить действие: '+error.message}; }
 }
 async function command(action,value) {
+  const service=configuration?.service;
   const result = await invoke('command',action,value ?? null);
   if (!result.ok) toast(result.error);
+  else if(service===configuration?.service&&result.service===service)renderState({...currentState,...result});
   return result;
 }
 function renderWaves(waves=[],message='Войдите в Яндекс Музыку, чтобы увидеть подборки Моей волны.') {
@@ -96,7 +98,7 @@ function renderSpotifyPlaylists(playlists=[],message='Войдите в Spotify,
     row.append(cover,title,arrow);list.append(row);
     row.addEventListener('click',async()=>{
       if(spotifySelecting)return;spotifySelecting=true;row.disabled=true;
-      try{const result=await command('spotify_playlist',playlist.url);if(result.ok){document.querySelectorAll('.spotify-playlist').forEach(el=>el.classList.toggle('selected',el.dataset.playlist===playlist.id));toast('Играет «'+playlist.title+'»');}}
+      try{const result=await command('spotify_playlist',playlist.url);if(result.ok&&configuration?.service==='spotify'){renderState({...currentState,...result,active_spotify_playlist:playlist.id,spotify_playlist_title:result.spotify_playlist_title||playlist.title});toast('Играет «'+playlist.title+'»');}}
       finally{spotifySelecting=false;row.disabled=false;}
     });
   }
@@ -379,10 +381,13 @@ function renderState(snapshot) {
   setText($('track-artist'),hasTrack?snapshot.artist:'Включите любимый трек');
   $('track-artist').title=hasTrack?snapshot.artist:'';
   const activeWave=connected&&waveService==='yandex'?snapshot.active_wave:null;
+  const activePlaylist=connected&&waveService==='spotify'?snapshot.active_spotify_playlist:null;
+  const playlistTitle=activePlaylist?snapshot.spotify_playlist_title||document.querySelector('.spotify-playlist[data-playlist="'+CSS.escape(activePlaylist)+'"] .genre-name')?.textContent||'Плейлист Spotify':'';
   const context=$('track-context');
-  setText(context,activeWave?activeWave+' ×':snapshot.playing&&connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА');
+  setText(context,activeWave?activeWave+' ×':activePlaylist?playlistTitle:snapshot.playing&&connected?'СЕЙЧАС ИГРАЕТ':'ВАША МУЗЫКА');
   context.classList.toggle('wave-active',!!activeWave);context.disabled=!activeWave||waveSelecting;
-  context.title=activeWave?'Отключить «'+activeWave+'» и включить Мою волну':'';
+  context.classList.toggle('playlist-active',!!activePlaylist);
+  context.title=activeWave?'Отключить «'+activeWave+'» и включить Мою волну':activePlaylist?'Сейчас играет плейлист «'+playlistTitle+'»':'';
   context.setAttribute('aria-label',activeWave?context.title:context.textContent);
   document.querySelectorAll('.genre[data-wave]').forEach(row=>row.classList.toggle('selected',!!activeWave&&row.dataset.wave===activeWave));
   const artwork=hasTrack?snapshot.artwork||'':'';

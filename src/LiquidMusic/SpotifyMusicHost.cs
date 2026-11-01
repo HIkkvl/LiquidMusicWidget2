@@ -9,6 +9,21 @@ namespace LiquidMusic;
 // Edge profile owned by the widget; never attach to the user's normal browser.
 internal sealed class SpotifyMusicHost(string? profile=null):IAsyncDisposable
 {
+    // Register before Spotify installs its OS media controls. These are the
+    // site's own handlers, so playback can still be controlled when a cookie
+    // dialog or a hidden duplicate of the footer prevents pointer input.
+    internal const string MediaSessionHook="""
+        (()=>{
+          if(!globalThis.MediaSession||window.__liquidMediaActions)return;
+          const actions=window.__liquidMediaActions=Object.create(null);
+          const native=MediaSession.prototype.setActionHandler;
+          MediaSession.prototype.setActionHandler=function(action,handler){
+            const result=native.call(this,action,handler);
+            if(typeof handler==='function')actions[action]=handler;else delete actions[action];
+            return result;
+          };
+        })();
+        """;
     private readonly string profile=profile??ProfileStorage.ProfilePath("spotify-edge");
     private readonly bool migrateProfile=profile==null;
     private IPlaywright? playwright;
@@ -41,6 +56,7 @@ internal sealed class SpotifyMusicHost(string? profile=null):IAsyncDisposable
             });
         }
         catch(PlaywrightException error){throw new InvalidOperationException("Не удалось запустить плеер Spotify. Проверьте, что Microsoft Edge установлен.",error);}
+        await context.AddInitScriptAsync(MediaSessionHook);
         await context.RouteAsync("**/*",async route=>
         {
             // Leave normal media, scripts and DRM requests untouched. Restrict

@@ -107,8 +107,9 @@ internal sealed partial class BrowserController
         finally{if(opened)await page.Keyboard.PressAsync("Escape");}
         throw new InvalidOperationException("Не удалось определить аккаунт Spotify. Откройте профиль в окне Spotify, затем повторите.");
     }
-    internal static async Task<JsonObject> StartSpotifyPlaylistAsync(IPage page,string script,string url)
+    internal static async Task<JsonObject> StartSpotifyPlaylistAsync(IPage page,string script,string url,string? fallbackTitle=null)
     {
+        var before=JsonNode.Parse((await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="spotify"})).GetRawText())!.AsObject();
         await page.GotoAsync(url,new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=30000});
         var clicked=false;
         for(var i=0;i<60;i++)
@@ -119,11 +120,15 @@ internal sealed partial class BrowserController
             if(clicked)
             {
                 var state=JsonNode.Parse((await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="spotify"})).GetRawText())!.AsObject();
-                if(state["playing"]?.GetValue<bool>()==true)
+                var changed=new[]{"title","artist","track_url"}.Any(key=>state[key]?.ToJsonString()!=before[key]?.ToJsonString());
+                var confirmed=target.TryGetProperty("already",out var current)&&current.GetBoolean();
+                if(state["playing"]?.GetValue<bool>()==true&&(confirmed||changed||before["playing"]?.GetValue<bool>()!=true))
                 {
-                    await page.EvaluateAsync<JsonElement>(script,new{action="spotify_playlist_selected",service="spotify",query=url.Split('/')[^1]});
                     var details=await page.EvaluateAsync<JsonElement>(script,new{action="spotify_playlist_details",service="spotify"});
-                    state["spotify_playlist_title"]=details.GetProperty("title").GetString();
+                    var title=details.GetProperty("title").GetString();
+                    if(string.IsNullOrWhiteSpace(title))title=fallbackTitle??"Плейлист Spotify";
+                    await page.EvaluateAsync<JsonElement>(script,new{action="spotify_playlist_selected",service="spotify",query=new{id=url.Split('/')[^1],title,url}});
+                    state["spotify_playlist_title"]=title;
                     state["spotify_playlist_artwork"]=details.GetProperty("artwork").GetString();
                     state["active_spotify_playlist"]=url.Split('/')[^1];return state;
                 }

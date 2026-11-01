@@ -42,6 +42,10 @@ internal static class SpotifyPlaylistTests
             document.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelector('[role=menu]')?.remove();});
             document.getElementById('home').addEventListener('click',()=>history.pushState({},'','/'));
             document.getElementById('playlist-play').addEventListener('click',async event=>{if(!event.isTrusted)return;await audio.play();document.getElementById('title').textContent='Playlist track';document.getElementById('play').setAttribute('aria-label','Pause');});
+            navigator.mediaSession.setActionHandler('pause',()=>{window.trustedActions.push('media:pause');audio.pause();document.getElementById('play').setAttribute('aria-label','Play');});
+            navigator.mediaSession.setActionHandler('play',async()=>{window.trustedActions.push('media:play');await audio.play();document.getElementById('play').setAttribute('aria-label','Pause');});
+            navigator.mediaSession.setActionHandler('nexttrack',()=>{window.trustedActions.push('media:next');document.getElementById('title').textContent='Next playlist track';audio.currentTime=0;});
+            navigator.mediaSession.setActionHandler('previoustrack',()=>{window.trustedActions.push('media:previous');document.getElementById('title').textContent='Previous playlist track';audio.currentTime=0;});
             </script>
             """;
         await page.RouteAsync("**/*",route=>new Uri(route.Request.Url).AbsolutePath=="/oembed"?
@@ -64,6 +68,41 @@ internal static class SpotifyPlaylistTests
         var playing=await controller.CommandAsync("spotify","spotify_playlist","https://open.spotify.com/playlist/"+PrivateId);
         Check(playing["playing"]!.GetValue<bool>()&&playing["active_spotify_playlist"]?.GetValue<string>()==PrivateId,"Playlist click starts audio through native input and marks selection");
         Check(SpotifyPlaylists.Saved(settings,"account-a").OfType<JsonObject>().Any(entry=>entry["url"]!.GetValue<string>().EndsWith(PrivateId)&&entry["title"]!.GetValue<string>()=="Account playlist"),"Authenticated playback fills private playlist title");
+        await page.EvaluateAsync("""
+            async()=>{
+              document.body.insertAdjacentHTML('afterbegin','<div style="display:none"><button data-testid="control-button-playpause" aria-label="Play"></button><button data-testid="control-button-skip-forward"></button><button data-testid="control-button-skip-back"></button></div>');
+              // The actual Spotify engine need not be a visible media node;
+              // a paused preview must not override the transport's Pause state.
+              audio.remove();await new Promise(resolve=>setTimeout(resolve,50));await audio.play();
+              window.__lmMedia=[];document.body.append(document.createElement('video'));
+            }
+            """);
+        var active=await controller.SnapshotAsync("spotify");
+        Check(active["playing"]!.GetValue<bool>()&&active["spotify_playlist_title"]?.GetValue<string>()=="Account playlist","Snapshot keeps playlist name and ignores paused preview media");
+        foreach(var action in new[]{"next","previous","stop","play"})
+        {
+            JsonObject state;
+            try{state=await controller.CommandAsync("spotify",action);}
+            catch(Exception error){throw new InvalidOperationException("Visible Spotify transport failed: "+action+" "+await page.EvaluateAsync<string>("()=>JSON.stringify({actions:window.trustedActions,label:document.getElementById('play').getAttribute('aria-label'),title:document.getElementById('title').textContent,paused:audio.paused})"),error);}
+            Check(state["spotify_playlist_title"]?.GetValue<string>()=="Account playlist"&&state["active_spotify_playlist"]?.GetValue<string>()==PrivateId,"Playlist context survives "+action);
+            if(action is "stop" or "play")Check(state["playing"]!.GetValue<bool>()==(action=="play"),"Visible transport works despite hidden duplicates: "+action);
+        }
+        await page.EvaluateAsync("""
+            ()=>{const root=document.querySelector('[data-testid="now-playing-bar"]'),r=root.getBoundingClientRect();
+              const overlay=document.createElement('div');overlay.id='transport-overlay';overlay.style.cssText=`position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:99999;background:#111`;document.body.append(overlay);}
+            """);
+        foreach(var action in new[]{"stop","play","next","previous","play_pause","play_pause"})
+        {
+            var state=await controller.CommandAsync("spotify",action);
+            if(action is "stop" or "play")Check(state["playing"]!.GetValue<bool>()==(action=="play"),"Media Session controls obscured Spotify transport: "+action);
+            Check(state["active_spotify_playlist"]?.GetValue<string>()==PrivateId,"Media commands preserve selected playlist");
+        }
+        Check(await page.EvaluateAsync<bool>("()=>['media:pause','media:play','media:next','media:previous'].every(action=>window.trustedActions.includes(action))"),"Fallback uses Spotify's registered OS media handlers");
+        await page.EvaluateAsync("()=>document.getElementById('transport-overlay').remove()");
+        await page.EvaluateAsync("()=>{document.querySelector('[data-testid=\"now-playing-bar\"]').hidden=true;window.__lmMedia=[];navigator.mediaSession.playbackState='none';}");
+        await controller.CommandAsync("spotify","stop");
+        Check(await page.EvaluateAsync<bool>("()=>audio.paused"),"Stop still reaches Spotify when its visual transport and playback state are unavailable");
+        await page.EvaluateAsync("()=>document.querySelector('[data-testid=\"now-playing-bar\"]').hidden=false");
         var playlistPage=page.Url;
         // Playlist navigation creates a new document; verify its account once
         // before measuring repeat reads of the already identified account.
@@ -82,6 +121,7 @@ internal static class SpotifyPlaylistTests
         await page.EvaluateAsync("()=>{window.accountId='account-b';document.querySelector('[data-testid=\"user-widget-link\"]').textContent='Another account';document.getElementById('library-scroll').replaceChildren();}");
         var another=await controller.SpotifyLibraryAsync();
         Check(another["account"]?.GetValue<string>()=="account-b"&&another["playlists"]!.AsArray().Count==0,"Switching account hides previous user's imported playlists");
+        Check((await controller.SnapshotAsync("spotify"))["active_spotify_playlist"]==null,"Switching account clears previous user's playlist context");
         Check(SpotifyPlaylists.Saved(new Settings(Path.Combine(root,"playlist-integration-settings.json")),"account-a").Count==2,"Manual playlists remain saved for original account");
     }
 }
