@@ -55,7 +55,9 @@ function renderWaves(waves=[],message='Войдите в Яндекс Музык
     const arrow=document.createElementNS('http://www.w3.org/2000/svg','svg');
     const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-chevron');arrow.append(use);row.append(img,text,arrow);
     row.addEventListener('click',async()=>{
-      if(wavesLoading||waveSelecting)return;waveSelecting=true;row.disabled=true;
+      if(wavesLoading||waveSelecting)return;
+      if(currentState.active_wave===wave.id){await resetWave();return;}
+      waveSelecting=true;row.disabled=true;
       try{
         const result=await command('wave',wave.id);
         if(result.ok){renderState({...currentState,...result,active_wave:wave.id});toast('Выбрана волна «'+wave.title+'»');}

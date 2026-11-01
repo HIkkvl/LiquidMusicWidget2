@@ -270,6 +270,48 @@ internal static class SelfTests
             var blockedState=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
             Check(blockedState.GetProperty("active_wave").GetString()=="Русский рок","Failed reset preserves genre");
             passed.Add("Active genre, paused selection, trusted default-wave reset on ru/kz/com, idempotency and overlay failure preservation");
+            var returnFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave-return.html"));
+            await page.UnrouteAllAsync();
+            await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=returnFixture}));
+            foreach(var domain in new[]{"ru","kz","com"})
+            {
+                await page.GotoAsync("https://music.yandex."+domain+"/");
+                Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Select station before modern reset");
+                var options=await page.EvaluateAsync<JsonElement>(script,new{action="wave_list",service="yandex"});
+                Check(options.GetArrayLength()==2,"Return card is a reset action, not another genre");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                var reset=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(reset.GetProperty("active_wave").ValueKind==JsonValueKind.Null&&reset.GetProperty("playing").GetBoolean(),"Modern reset clears selection and keeps playback");
+                Check(await page.EvaluateAsync<bool>("()=>window.resetClicks===1&&window.heroClicks===0&&window.scrollCalls===0&&document.querySelector('.Meta_title').textContent==='Текущий трек'"),"Use native Return card without toggling playback or waiting for another song");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                Check(await page.EvaluateAsync<int>("()=>window.resetClicks")==1,"Modern reset remains idempotent");
+            }
+            Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Reselect station before blocked reset");
+            await page.EvaluateAsync("()=>{const overlay=document.createElement('div');overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.style.cssText='position:fixed;inset:0;z-index:999999';document.body.append(overlay);}");
+            var modernBlocked=false;
+            try{await BrowserController.StartDefaultWaveAsync(page,script);}catch(InvalidOperationException){modernBlocked=true;}
+            Check(modernBlocked,"Modern reset refuses to click through an actual dialog");
+            var preserved=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+            Check(preserved.GetProperty("active_wave").GetString()=="Русский рок","Blocked reset never clears the label prematurely");
+            passed.Add("Modern Return-to-familiar card, duplicate/offscreen slides, unchanged song, idempotency and blocked reset on ru/kz/com");
+            foreach(var domain in new[]{"ru","kz","com"})
+            {
+                await page.GotoAsync("https://music.yandex."+domain+"/?reset=button");
+                Check(await BrowserController.ClickWaveAsync(page,script,"Русский рок"),"Select genre with explicit reset button");
+                await page.EvaluateAsync("()=>document.querySelectorAll('[data-wave]').forEach(el=>el.setAttribute('aria-label','Воспроизведение'))");
+                await page.EvaluateAsync("()=>document.querySelector('.VibeResetButton_context').textContent='Русский'");
+                var currentGenre=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(currentGenre.GetProperty("active_wave").GetString()=="Русский рок","Read selected genre from its reset chip even when wheel buttons still say Play");
+                var currentStatus=await page.EvaluateAsync<JsonElement>(script,new{action="wave_status",service="yandex",query="Русский рок"});
+                Check(currentStatus.GetProperty("playing").GetBoolean(),"Reset chip confirms selected genre without requiring a different track");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                var reset=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+                Check(reset.GetProperty("active_wave").ValueKind==JsonValueKind.Null&&reset.GetProperty("playing").GetBoolean(),"Explicit genre-reset button clears active genre");
+                Check(await page.EvaluateAsync<bool>("()=>window.resetClicks===1&&window.heroClicks===0&&window.scrollCalls===0&&!document.querySelector('[data-return-wave]').hidden"),"Genre reset uses its own button while keeping unrelated Return recommendations");
+                await BrowserController.StartDefaultWaveAsync(page,script);
+                Check(await page.EvaluateAsync<int>("()=>window.resetClicks")==1,"Genre reset is idempotent when Return card stays visible");
+            }
+            passed.Add("Current explicit genre-reset button, persistent return cards and continuous playback on ru/kz/com");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}

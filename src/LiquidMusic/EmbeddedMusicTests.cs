@@ -126,6 +126,15 @@ internal static class EmbeddedMusicTests
         var defaultWave=await controller.CommandAsync("yandex","wave_reset");
         Check(defaultWave["active_wave"]==null&&defaultWave["playing"]?.GetValue<bool>()==true,"Embedded reset clears genre while music keeps playing");
         checks.Add("Full embedded controller genre selection and default-wave reset");
+        var returnFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave-return.html"));
+        await page.UnrouteAllAsync();
+        await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=returnFixture}));
+        await page.ReloadAsync();
+        await controller.CommandAsync("yandex","wave","Русский рок");
+        var modernReset=await controller.CommandAsync("yandex","wave_reset");
+        Check(modernReset["active_wave"]==null&&modernReset["playing"]?.GetValue<bool>()==true,"Embedded reset uses current site's Return card");
+        Check(await page.EvaluateAsync<bool>("()=>window.resetClicks===1&&window.heroClicks===0&&window.scrollCalls===0"),"Embedded reset does not pause current station or scroll the layout");
+        checks.Add("Current My Wave return card clears the genre while the same song continues");
         await page.EvaluateAsync("()=>{document.cookie='embeddedSessionProbe=ok; Max-Age=3600; Secure; SameSite=Lax';}");
         await page.ReloadAsync();
         Check(await page.EvaluateAsync<bool>("()=>document.cookie.includes('embeddedSessionProbe=ok')"),"Separate music profile retains session cookies");

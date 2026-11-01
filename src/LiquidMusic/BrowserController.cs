@@ -314,7 +314,6 @@ internal sealed partial class BrowserController : IAsyncDisposable
             {
                 if(service!="yandex")throw new InvalidOperationException("Моя волна доступна в Яндекс Музыке.");
                 await StartDefaultWaveAsync(page,script);
-                await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service,query=(string?)null});
                 return await ReadAsync(page,service);
             }
             if(action is "wave_list" or "wave")
@@ -577,24 +576,39 @@ internal sealed partial class BrowserController : IAsyncDisposable
     internal static async Task StartDefaultWaveAsync(IPage page,string script)
     {
         var before=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
+        var fromReturn=false;var fromButton=false;var resumed=false;
+        async Task Confirm()=>await page.EvaluateAsync<JsonElement>(script,new{action="wave_selection",service="yandex",query=(string?)null});
         for(var attempt=0;attempt<3;attempt++)
         {
-            var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_target",service="yandex"});
-            if(target.GetProperty("playing").GetBoolean())return;
+            var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_target",service="yandex",resetFromReturn=fromReturn,resetFromButton=fromButton});
+            if(target.GetProperty("playing").GetBoolean()){await Confirm();return;}
+            if(target.GetProperty("returning").GetBoolean())
+            {
+                var reveal=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_reveal",service="yandex"});
+                if(reveal.TryGetProperty("blocked",out var blocked)&&blocked.GetBoolean())throw new InvalidOperationException("Кнопка Моей волны перекрыта. Закройте диалог и повторите.");
+                target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_target",service="yandex"});
+            }
             if(!target.GetProperty("found").GetBoolean())
             {
                 var home=await page.EvaluateAsync<bool>(script,new{action="wave_home_target",service="yandex"});
                 if(!home||!await ClickControlAsync(page,"wave-home"))throw new InvalidOperationException("Не удалось открыть Мою волну. Закройте диалог и повторите.");
             }
-            else if(!await ClickControlAsync(page,"wave-default"))throw new InvalidOperationException("Кнопка Моей волны перекрыта. Закройте диалог и повторите.");
+            else
+            {
+                var returning=target.GetProperty("returning").GetBoolean();
+                if(!await ClickControlAsync(page,"wave-default",returning?"wave-card":null))throw new InvalidOperationException("Кнопка Моей волны перекрыта. Закройте диалог и повторите.");
+                fromReturn|=target.GetProperty("reset_kind").GetString()=="card";
+                fromButton|=target.GetProperty("reset_kind").GetString()=="button";
+            }
             for(var i=0;i<16;i++)
             {
                 await Task.Delay(250);
-                var status=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_status",service="yandex"});
-                if(status.GetProperty("playing").GetBoolean())return;
+                var status=await page.EvaluateAsync<JsonElement>(script,new{action="wave_default_status",service="yandex",resetFromReturn=fromReturn,resetFromButton=fromButton});
+                if(status.GetProperty("playing").GetBoolean()){await Confirm();return;}
+                if((fromReturn||fromButton)&&status.GetProperty("default").GetBoolean()&&!resumed)resumed=await ResumeYandexAsync(page,script);
                 var state=await page.EvaluateAsync<JsonElement>(script,new{action="snapshot",service="yandex"});
-                if(target.GetProperty("found").GetBoolean()&&!status.GetProperty("active").GetBoolean()&&state.GetProperty("playing").GetBoolean()&&
-                    new[]{"title","artist","track_url"}.Any(field=>state.GetProperty(field).GetRawText()!=before.GetProperty(field).GetRawText()))return;
+                if(target.GetProperty("found").GetBoolean()&&!status.GetProperty("returning").GetBoolean()&&!status.GetProperty("active").GetBoolean()&&state.GetProperty("playing").GetBoolean()&&
+                    new[]{"title","artist","track_url"}.Any(field=>state.GetProperty(field).GetRawText()!=before.GetProperty(field).GetRawText())){await Confirm();return;}
             }
         }
         throw new InvalidOperationException("Моя волна пока не запустилась. Проверьте подключение и повторите — выбранный жанр сохранён.");

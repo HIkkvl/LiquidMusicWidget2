@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8">
+<!-- Current wheel: the hero toggles the selected station; reset is a separate card. -->
+<style>
+body{margin:0}.swiper{position:absolute;top:90px;left:80px;width:350px;height:160px;overflow:hidden}
+.swiper-slide{height:200px}.WheelItem_root{width:320px;height:140px}
+button[data-wave]{width:65px;height:60px}
+</style>
+<div class="PlayerBar_root"><span class="Meta_title">Текущий трек</span><button aria-label="Пауза"></button></div>
+<div class="VibePage_root">
+ <button hidden data-reset-genre class="VibeResetButton_button" aria-label="Сбросить Русский рок и включить Мою волну"><span class="VibeResetButton_context">Русский рок</span></button>
+ <button aria-label="Пауза Моей волны" data-current-wave>Моя волна</button>
+ <section class="swiper WheelDesktop_root" aria-label="Рекомендации моей волны"><div class="swiper-wrapper">
+  <div class="swiper-slide" data-swiper-slide-index="0"><div class="WheelItem_root"><span class="WheelItem_title">Это поп!</span><button data-wave="pop" aria-label="Воспроизведение"></button></div></div>
+  <div class="swiper-slide" data-swiper-slide-index="1"><div class="WheelItem_root"><span class="WheelItem_title">Русский рок</span><button data-wave="rock" aria-label="Воспроизведение"></button></div></div>
+  <div class="swiper-slide" data-swiper-slide-index="2"><div hidden role="button" tabindex="0" class="WheelItem_root" aria-label="Назад к привычному" data-return-wave><span class="WheelItem_title">Назад к привычному</span></div></div>
+  <div class="swiper-slide" data-swiper-slide-index="3"><div hidden role="button" tabindex="0" class="WheelItem_root" aria-label="Назад к привычному" data-return-wave><span class="WheelItem_title">Назад к привычному</span></div></div>
+ </div></section>
+</div>
+<script>
+window.resetClicks=0;window.heroClicks=0;window.scrollCalls=0;
+const buttonMode=new URLSearchParams(location.search).get('reset')==='button';
+if(buttonMode)document.querySelector('.VibePage_root').classList.add('VibePage_bigCardPanel');
+Element.prototype.scrollIntoView=function(){window.scrollCalls++;throw Error('Never scroll the wave layout');};
+const wheel=document.querySelector('.swiper');
+wheel.swiper={activeIndex:0,slides:[...wheel.querySelectorAll('.swiper-slide')],slideTo(index){this.activeIndex=index;wheel.querySelector('.swiper-wrapper').style.transform=`translateY(-${index*200}px)`;}};
+document.addEventListener('click',event=>{
+ if(!event.isTrusted)return;
+ if(event.target.closest('[data-current-wave]')){window.heroClicks++;document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Воспроизведение');return;}
+ const station=event.target.closest('[data-wave]');
+ if(station){
+  document.querySelectorAll('[data-wave]').forEach(el=>el.setAttribute('aria-label','Воспроизведение'));
+  station.setAttribute('aria-label','Пауза');document.querySelectorAll('[data-return-wave]').forEach(el=>el.hidden=false);
+  document.querySelector('[data-reset-genre]').hidden=!buttonMode;
+  document.querySelector('.PlayerBar_root button').setAttribute('aria-label','Пауза');return;
+ }
+ if(event.target.closest(buttonMode?'[data-reset-genre]':'[data-return-wave]')){
+  window.resetClicks++;
+  setTimeout(()=>{
+   if(!buttonMode)document.querySelectorAll('[data-return-wave]').forEach(el=>el.hidden=true);
+   document.querySelector('[data-reset-genre]').hidden=true;
+   document.querySelectorAll('[data-wave]').forEach(el=>el.setAttribute('aria-label','Воспроизведение'));
+   // Station can change without interrupting the current song.
+  },80);
+ }
+});
+</script>

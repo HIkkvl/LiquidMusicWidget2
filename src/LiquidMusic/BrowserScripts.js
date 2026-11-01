@@ -1,4 +1,4 @@
-({action, service, command, query, volume}) => {
+({action, service, command, query, volume, resetFromReturn=false, resetFromButton=false}) => {
   const cyrillic='абвгдеёжзийклмнопрстуфхцчшщъыьэюя';
   const latin=['a','b','v','g','d','e','e','zh','z','i','y','k','l','m','n','o','p','r','s','t','u','f','h','ts','ch','sh','shch','','y','','e','yu','ya'];
   const months={январь:'января',января:'января',февраль:'февраля',февраля:'февраля',март:'марта',марта:'марта',апрель:'апреля',апреля:'апреля',май:'мая',мая:'мая',июнь:'июня',июня:'июня',июль:'июля',июля:'июля',август:'августа',августа:'августа',сентябрь:'сентября',сентября:'сентября',октябрь:'октября',октября:'октября',ноябрь:'ноября',ноября:'ноября',декабрь:'декабря',декабря:'декабря'};
@@ -204,7 +204,7 @@
       const wheelTitle=el.querySelector('[class*="WheelItem_title"]')?.textContent;
       const description=el.querySelector('[class*="WheelItem_description"]')?.textContent;
       const title=(wheelTitle?[description,wheelTitle].filter(Boolean).join(' '):el.innerText?.trim()||el.getAttribute('aria-label')||el.querySelector('img')?.alt||'').replace(/\s+/g,' ').trim();
-      if(!title||title.length>100||/^(?:моя волна|воспроизведение|воспроизвести|слушать|пауза|настроить|настройки|войти|play|pause|settings|закрыть|далее|назад)(?:$|[ :])/i.test(title)||seen.has(title))continue;
+      if(!title||title.length>100||/^(?:моя волна|воспроизведение|воспроизвести|слушать|пауза|настроить|настройки|войти|play|pause|settings|закрыть|далее|назад)(?:$|[ :])/i.test(title)||/^Назад\s+к\s+привычному$/i.test(title)||seen.has(title))continue;
       const rect=el.getBoundingClientRect();if(!rect.width||!rect.height)continue;
       const image=el.querySelector('img');
       const artwork=image?.currentSrc||image?.src||'';
@@ -220,34 +220,60 @@
   const defaultWaveControl=()=>[...document.querySelectorAll('button,[role="button"]')].filter(el=>
     !el.closest('nav,aside,[class*="Wheel"],'+playerSelector)&&enabled(el)&&el.getClientRects().length
   ).find(el=>/^(?:воспроизведение|воспроизвести|слушать|продолжить|пауза)\s+(?:моей волны|мою волну|моя волна)$/i.test(label(el).trim())||/^Моя волна$/i.test(el.innerText?.trim()||''));
-  if(action==='wave_selection'){window.__liquidWaveSelection=query||null;return {ok:true};}
-  if(action==='wave_default_target'||action==='wave_default_status'){
-    const control=defaultWaveControl();
-    const active=waveOptions().some(pausedWave);
-    const isDefault=!!control&&/^(?:пауза|pause)(?:$|\s)/i.test(label(control))&&!active;
-    if(action==='wave_default_target'){
-      document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
-      if(control&&!isDefault)control.setAttribute('data-liquid-control','wave-default');
-    }
-    return {found:!!control,playing:playing&&isDefault,active};
-  }
-  if(action==='wave_status'){
-    const item=waveOptions().find(item=>item.id===query);
-    return {found:!!item,playing:!!item&&/^(?:пауза|pause)(?:$|\s)/i.test(label(item.element))};
-  }
-  if(action==='wave_reveal'){
-    const item=waveOptions().find(item=>item.id===query&&!item.disabled);
-    if(!item)return {found:false};
+  const returnWaveCard=()=>{
+    const cards=[...document.querySelectorAll('[class*="WheelItem_root"]')].filter(el=>enabled(el)&&el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden'&&
+      /^Назад\s+к\s+привычному$/i.test((el.getAttribute('aria-label')||el.textContent||'').replace(/\s+/g,' ').trim()));
+    return cards.find(visible)||cards[0]||null;
+  };
+  const resetWaveButton=()=>service==='yandex'?[...document.querySelectorAll('button[class*="VibeResetButton_button"],button[aria-label^="Сбросить "]')].find(el=>
+    enabled(el)&&visible(el)&&!!el.closest('[class*="VibePage_root"],[class*="VibeBlock_root"]')&&/и\s+включить\s+Мою\s+волну\s*$/i.test(el.getAttribute('aria-label')||''))||null:null;
+  const resetWaveTitle=el=>el?.querySelector('[class*="VibeResetButton_context"]')?.textContent?.trim()||el?.textContent?.trim()||'';
+  const waveByContext=(items,title)=>{
+    const context=norm(title);if(!context)return null;
+    const exact=items.find(item=>norm(item.title)===context);if(exact)return exact;
+    const matches=items.filter(item=>norm(item.title).startsWith(context+' ')||norm(item.title).endsWith(' '+context));
+    return matches.length===1?matches[0]:null;
+  };
+  const revealWaveCard=container=>{
     const dialog=[...document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')].some(el=>el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden');
     if(dialog)return {found:true,blocked:true};
-    const slide=item.container.closest('[data-swiper-slide-index],.swiper-slide');
-    const wheel=slide?.closest('.swiper');
-    const swiper=wheel?.swiper;
+    const slide=container.closest('[data-swiper-slide-index],.swiper-slide');
+    const swiper=slide?.closest('.swiper')?.swiper;
     if(swiper&&typeof swiper.slideTo==='function'){
       const index=Array.from(swiper.slides||[]).indexOf(slide);
       if(index>=0&&swiper.activeIndex!==index)swiper.slideTo(index,0,true);
     }
     return {found:true};
+  };
+  if(action==='wave_default_reveal'){
+    const control=resetWaveButton()||returnWaveCard();return control?revealWaveCard(control):{found:false};
+  }
+  if(action==='wave_selection'){window.__liquidWaveSelection=query||null;return {ok:true};}
+  if(action==='wave_default_target'||action==='wave_default_status'){
+    const reset=resetWaveButton();
+    const returning=reset||returnWaveCard();
+    const control=returning||defaultWaveControl();
+    const active=!!reset||waveOptions().some(pausedWave);
+    const resetCompleted=(resetFromButton?!reset:resetFromReturn&&!returning)&&!active&&!!document.querySelector('[class*="VibePage_root"],[class*="VibeBlock_root"]');
+    const modernRoot=document.querySelector('[class*="VibePage_bigCardPanel"]');
+    const modernDefault=!!modernRoot&&!/VibePage_root_reshuffle/.test(String(modernRoot.className))&&!window.__liquidWaveSelection&&!active;
+    const isDefault=resetCompleted||modernDefault||!returning&&!!control&&/^(?:пауза|pause)(?:$|\s)/i.test(label(control))&&!active;
+    if(action==='wave_default_target'){
+      document.querySelectorAll('[data-liquid-control],[data-liquid-wave-card]').forEach(el=>{el.removeAttribute('data-liquid-control');el.removeAttribute('data-liquid-wave-card');});
+      if(control&&!isDefault)control.setAttribute('data-liquid-control','wave-default');
+      if(returning)returning.setAttribute('data-liquid-wave-card','true');
+    }
+    return {found:!!control,playing:playing&&isDefault,active,returning:!!returning,reset_kind:reset?'button':returning?'card':null,default:isDefault};
+  }
+  if(action==='wave_status'){
+    const items=waveOptions(),item=items.find(item=>item.id===query);
+    const selected=waveByContext(items,resetWaveTitle(resetWaveButton()));
+    return {found:!!item,playing:!!item&&(/^(?:пауза|pause)(?:$|\s)/i.test(label(item.element))||playing&&selected?.id===query)};
+  }
+  if(action==='wave_reveal'){
+    const item=waveOptions().find(item=>item.id===query&&!item.disabled);
+    if(!item)return {found:false};
+    return revealWaveCard(item.container);
   }
   if(action==='wave_target'){
     document.querySelectorAll('[data-liquid-control],[data-liquid-wave-card]').forEach(el=>{el.removeAttribute('data-liquid-control');el.removeAttribute('data-liquid-wave-card');});
@@ -325,8 +351,14 @@
   if(action==='snapshot') {
     const options=waveOptions();
     const selectedWave=options.find(pausedWave);
+    const reset=resetWaveButton();
+    if(reset){
+      window.__liquidWaveHasResetButton=true;
+      const title=resetWaveTitle(reset);
+      window.__liquidWaveSelection||=waveByContext(options,title)?.id||title||null;
+    }else if(window.__liquidWaveHasResetButton){window.__liquidWaveHasResetButton=false;window.__liquidWaveSelection=null;}
     if(selectedWave)window.__liquidWaveSelection=selectedWave.id;
-    else if(defaultWaveControl()&&/^(?:пауза|pause)(?:$|\s)/i.test(label(defaultWaveControl())))window.__liquidWaveSelection=null;
+    else if(!reset&&defaultWaveControl()&&/^(?:пауза|pause)(?:$|\s)/i.test(label(defaultWaveControl())))window.__liquidWaveSelection=null;
     const waveItems=options.map(({element,container,...item})=>item);
     const signedIn=service==='yandex'?!!document.querySelector('[class*="UserProfile_userName"]')||waveItems.length>0:
       service==='spotify'?!!document.querySelector('[data-testid="user-widget-link"],[data-testid="user-widget-avatar"]'):
