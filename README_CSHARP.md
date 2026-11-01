@@ -9,7 +9,7 @@
 Запустите `START_WIDGET.vbs`, `START_WIDGET.bat` или `native/LiquidMusic.exe`.
 У сборки собственный .NET Runtime; Python и установка .NET не требуются.
 Для интерфейса нужен Microsoft Edge WebView2 Runtime, уже присутствующий на этом ПК.
-Настройки читаются из прежнего `settings.json`, включая голосовую клавишу **End**.
+Настройки хранятся в `%LOCALAPPDATA%\LiquidMusic\settings.json`; прежний `settings.json` импортируется при первом запуске, включая голосовую клавишу **End**.
 На новой установке голосовая клавиша по умолчанию — Num3.
 
 ## Отправка другу

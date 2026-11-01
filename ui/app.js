@@ -310,7 +310,7 @@ function renderState(snapshot) {
   $('service-search-title').textContent='Поиск · '+serviceNames[waveService];
   $('service-note').textContent=waveService==='spotify'?'Spotify работает в отдельном фоновом Edge. Доступность треков и воспроизведения зависит от аккаунта и региона.':waveService==='soundcloud'?'Для лайков войдите в SoundCloud. Некоторые треки требуют подписку или недоступны в вашем регионе.':'Воспроизведение зависит от доступности трека и аккаунта.';
   document.querySelector('.brand strong').textContent=serviceNames[waveService];
-  document.querySelector('.brand-mark').textContent=waveService==='spotify'?'≋':waveService==='soundcloud'?'☁':waveService==='youtube'?'▶':'✳';
+  document.querySelector('.brand-mark').src='assets/services/'+waveService+'.png';
   if(waveService==='yandex'){
     if(waveOrigin&&snapshot.wave_origin&&waveOrigin!==snapshot.wave_origin){wavesAttempted=false;renderWaves();}
     if(snapshot.wave_origin)waveOrigin=snapshot.wave_origin;

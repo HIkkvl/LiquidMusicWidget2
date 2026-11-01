@@ -11,6 +11,7 @@ namespace LiquidMusic;
 internal sealed class EmbeddedMusicHost : IDisposable
 {
     private readonly string profile;
+    private readonly bool migrateProfile;
     private readonly Func<string> design;
     private readonly Dictionary<string,MusicWindow> windows=new();
     private readonly Dictionary<string,bool> accounts=new();
@@ -21,7 +22,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
     private bool disposed;
     public string Endpoint {get;private set;}="";
     public EmbeddedMusicHost(string? profile=null,Func<string>? design=null)
-    {this.profile=profile??Path.Combine(AppPaths.Data,"music-webview");this.design=design??(()=>"aurora");}
+    {this.profile=profile??ProfileStorage.ProfilePath("music-webview");migrateProfile=profile==null;this.design=design??(()=>"aurora");}
     internal IEnumerable<MusicWindow> Windows=>windows.Values;
     internal string? Target(string service)=>targets.GetValueOrDefault(service);
     public JsonObject Status(string service)
@@ -44,6 +45,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
     private async Task InitializeCoreAsync()
     {
         ObjectDisposedException.ThrowIf(disposed,this);
+        if(migrateProfile)ProfileStorage.Prepare("music-webview");
         Directory.CreateDirectory(profile);
         // Port 0 lets Chromium allocate a free loopback port. No changes to
         // Windows browser associations, shortcuts or machine-wide flags.

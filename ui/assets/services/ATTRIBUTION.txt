@@ -1,0 +1,7 @@
+Official service icons downloaded from their websites on 2026-11-01.
+All marks belong to their respective owners. Images are bundled unchanged.
+
+Yandex Music: https://yastatic-net.ru/s3/music-frontend-static/music/v4.1724.1/apple-touch-icon.png
+YouTube Music: https://music.youtube.com/img/favicon_144.png
+Spotify: https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png
+SoundCloud: https://a-v2.sndcdn.com/assets/images/sc-icons/ios-a62dfc8fe7.png

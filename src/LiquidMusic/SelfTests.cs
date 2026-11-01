@@ -15,6 +15,8 @@ internal static class SelfTests
         {
             DiscordPresenceTests.Run();
             passed.Add("Discord options, listening activity, timestamps and IPC frame encoding");
+            ProfileStorageTests.Run();
+            passed.Add("Shared app profiles, legacy login migration, account domain persistence and build relocation");
             Check(VoiceParser.Parse("Включи трек Династия!")==new VoiceCommand("search_play","Династия"),"Russian track parser");
             Check(VoiceParser.Parse("поставь на паузу").Action=="pause","Pause parser");
             Check(VoiceParser.Parse("следующий трек").Action=="next","Next parser");

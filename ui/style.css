@@ -78,10 +78,7 @@ svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 .header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0;height:46px;gap:8px;padding:0 2px}
 .brand{display:flex;align-items:center;gap:10px;align-self:stretch;flex:1;min-width:0;cursor:move}
 .brand-mark{
-  font:400 38px/1 Arial,sans-serif;
-  background:linear-gradient(140deg,#ffe84a 10%,#ff9a3c 55%,#ff5d9e);
-  -webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;
-  filter:drop-shadow(0 0 10px rgba(255,170,60,.4));
+  display:block;width:36px;height:36px;object-fit:contain;flex-shrink:0;border-radius:9px;
 }
 .brand strong{font-size:17px;letter-spacing:-.2px;font-weight:600;white-space:nowrap}
 .brand-caption{display:none}
@@ -424,6 +421,8 @@ select{
 .service-icon{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;font-weight:700;font-size:15px;flex-shrink:0}
 .service-icon.ya{color:#1b1b1f;background:linear-gradient(140deg,#ffe84a,#ffb13c);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 3px 10px rgba(255,180,60,.35)}
 .service-icon.yt{color:#fff;background:linear-gradient(140deg,#ff5b5b,#d90000);font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 3px 10px rgba(255,60,60,.4)}
+.service-tabs .service-icon:has(img){background:transparent;box-shadow:none}
+.service-icon img{display:block;width:100%;height:100%;object-fit:contain;border-radius:inherit}
 
 /* ---- тема YouTube (бордовая) ---- */
 body[data-service="youtube"]{

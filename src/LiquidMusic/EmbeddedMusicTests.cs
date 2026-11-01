@@ -53,7 +53,8 @@ internal static class EmbeddedMusicTests
         var settings=new Settings(Path.Combine(testRoot,"settings.json"));
         settings.Value["yandex_domain"]="music.yandex.kz";settings.Save();
         var foreground=Native.GetForegroundWindow();
-        using var host=new EmbeddedMusicHost(Path.Combine(testRoot,"profile"));
+        var legacyInstall=Path.Combine(testRoot,"legacy-build");
+        using var host=new EmbeddedMusicHost(Path.Combine(legacyInstall,".native-data","music-webview"));
         await host.InitializeAsync();
         using var playwright=await Playwright.CreateAsync();
         var transport=await playwright.Chromium.ConnectOverCDPAsync(host.Endpoint,new(){NoDefaults=true,Timeout=10000});
@@ -128,7 +129,8 @@ internal static class EmbeddedMusicTests
         var processId=(int)host.Windows.First().View.CoreWebView2.BrowserProcessId;
         await controller.DisposeAsync();
         await Task.Run(()=>{try{System.Diagnostics.Process.GetProcessById(processId).WaitForExit(5000);}catch(ArgumentException){}});
-        using var restored=new EmbeddedMusicHost(Path.Combine(testRoot,"profile"));
+        var sharedProfile=ProfileStorage.Prepare("music-webview",Path.Combine(testRoot,"shared-profiles"),new[]{legacyInstall});
+        using var restored=new EmbeddedMusicHost(sharedProfile);
         await restored.InitializeAsync();
         var restoredTransport=await playwright.Chromium.ConnectOverCDPAsync(restored.Endpoint,new(){NoDefaults=true,Timeout=10000});
         var restoredPage=restoredTransport.Contexts.SelectMany(c=>c.Pages).Single();
@@ -137,7 +139,7 @@ internal static class EmbeddedMusicTests
         await restoredPage.WaitForSelectorAsync("p");
         Check(await restoredPage.EvaluateAsync<bool>("()=>document.cookie.includes('embeddedSessionProbe=ok')"),"Session cookie survives destruction and recreation of the music engine");
         Check(Native.GetForegroundWindow()==foreground,"Restoring saved music session stays invisible");
-        checks.Add("Persistent login cookie survives music-engine restart");
+        checks.Add("Encrypted persistent login cookie survives migration from an old build and music-engine restart");
         await restored.ShowLoginAsync("yandex","https://music.yandex.kz/");
         await restoredPage.WaitForURLAsync("https://passport.yandex.kz/auth?**");
         await restored.EnsureServiceAsync("yandex","https://music.yandex.kz/");

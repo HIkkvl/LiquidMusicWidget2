@@ -90,7 +90,8 @@ internal static class ServicePlayerTests
                 BrowserController.MatchesService("https://"+new Uri(MusicServices.Origin(service)).Host+".evil.example/",service)||
                 EmbeddedMusicHost.AllowedNavigation("https://evil.example/",service))throw new InvalidOperationException("Service navigation boundaries: "+service);
         }
-        await using(var spotify=new SpotifyMusicHost(Path.Combine(root,"spotify")))
+        var legacyInstall=Path.Combine(root,"legacy-build");
+        await using(var spotify=new SpotifyMusicHost(Path.Combine(legacyInstall,".native-data","spotify-edge")))
         {
             var page=await spotify.PageAsync();
             if(spotify.HasVisibleWindow)throw new InvalidOperationException("Spotify startup must not leave a visible browser window.");
@@ -107,10 +108,17 @@ internal static class ServicePlayerTests
             if(!drm.EnumerateObject().Any(property=>property.Value.GetString()=="supported"))throw new InvalidOperationException("Installed Edge does not offer protected playback for Spotify: "+drm.GetRawText());
             await CheckAdapterAsync(page,"spotify");
             if(await page.EvaluateAsync<bool>("()=>typeof window.liquid!=='undefined'"))throw new InvalidOperationException("Native bridge leaked into Spotify");
-            await page.EvaluateAsync("()=>{document.cookie='serviceSessionProbe=ok;Max-Age=3600;Secure;SameSite=Lax';}");
+            await page.EvaluateAsync("()=>{document.cookie='serviceSessionProbe=ok;Path=/;Max-Age=3600;Secure;SameSite=Lax';}");
             await page.ReloadAsync();
             if(!await page.EvaluateAsync<bool>("()=>document.cookie.includes('serviceSessionProbe=ok')"))throw new InvalidOperationException("Spotify session cookie not retained");
             checks.Add("Spotify: private background Edge, Widevine, metadata, trusted search/play/pause/skip/like, volume and isolated session");
+        }
+        var migratedSpotify=ProfileStorage.Prepare("spotify-edge",Path.Combine(root,"shared-profiles"),new[]{legacyInstall});
+        await using(var restoredSpotify=new SpotifyMusicHost(migratedSpotify))
+        {
+            var restoredPage=await restoredSpotify.PageAsync();
+            if(!await restoredPage.EvaluateAsync<bool>("()=>document.cookie.includes('serviceSessionProbe=ok')"))throw new InvalidOperationException("Spotify session cookie did not survive profile migration and restart.");
+            checks.Add("Spotify encrypted session cookie survives migration from old build and engine restart");
         }
         using(var host=new EmbeddedMusicHost(Path.Combine(root,"soundcloud")))
         {

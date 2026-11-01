@@ -39,7 +39,7 @@ internal sealed class Settings
     public JsonObject Value { get; private set; }
     public Settings(string? file = null)
     {
-        path = file ?? Path.Combine(AppPaths.Root, "settings.json");
+        path = file ?? ProfileStorage.SettingsPath();
         try { Value = JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? new(); }
         catch { Value = new(); }
         Value["bindings"] ??= Defaults();

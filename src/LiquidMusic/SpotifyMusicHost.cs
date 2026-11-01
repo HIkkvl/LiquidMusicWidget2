@@ -9,7 +9,8 @@ namespace LiquidMusic;
 // Edge profile owned by the widget; never attach to the user's normal browser.
 internal sealed class SpotifyMusicHost(string? profile=null):IAsyncDisposable
 {
-    private readonly string profile=profile??Path.Combine(AppPaths.Data,"spotify-edge");
+    private readonly string profile=profile??ProfileStorage.ProfilePath("spotify-edge");
+    private readonly bool migrateProfile=profile==null;
     private IPlaywright? playwright;
     private IBrowserContext? context;
     private IPage? page;
@@ -26,6 +27,7 @@ internal sealed class SpotifyMusicHost(string? profile=null):IAsyncDisposable
         if(page?.IsClosed==false)return page;
         if(context!=null)try{await context.CloseAsync();}catch(PlaywrightException){}
         context=null;page=null;processId=0;signedIn=false;loginVisible=false;
+        if(migrateProfile)ProfileStorage.Prepare("spotify-edge");
         Directory.CreateDirectory(profile);
         playwright??=await Playwright.CreateAsync();
         try
