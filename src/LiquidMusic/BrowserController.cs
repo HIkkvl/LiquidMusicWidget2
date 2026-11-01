@@ -155,6 +155,23 @@ internal sealed class BrowserController : IAsyncDisposable
             // inside Chromium so background playback accepts trusted input.
             focus=await page.Context.NewCDPSessionAsync(page);
             await focus.SendAsync("Emulation.setFocusEmulationEnabled",new Dictionary<string,object>{{"enabled",true}});
+            if(action is "wave_list" or "wave")
+            {
+                if(service!="yandex")throw new InvalidOperationException("Моя волна доступна в Яндекс Музыке.");
+                if(action=="wave"&&(string.IsNullOrWhiteSpace(query)||query.Length>100))throw new ArgumentException("Выберите подборку Моей волны.");
+                var options=await WaveOptionsAsync(page,script,action=="wave"?query:null);
+                if(action=="wave_list")return new(){["waves"]=JsonNode.Parse(options.GetRawText()),["wave_origin"]=new Uri(page.Url).GetLeftPart(UriPartial.Authority)};
+                var target=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service,query});
+                if(!target.GetProperty("found").GetBoolean())throw new InvalidOperationException("Подборка больше недоступна. Обновите список Моей волны.");
+                if(!await ClickControlAsync(page,"wave"))throw new InvalidOperationException("Подборка перекрыта. Закройте диалог в музыкальной вкладке и повторите.");
+                for(var i=0;i<40;i++)
+                {
+                    await Task.Delay(250);
+                    var state=await ReadAsync(page,service);
+                    if(state["playing"]?.GetValue<bool>()==true)return state;
+                }
+                throw new InvalidOperationException("Подборка выбрана, но воспроизведение не началось. Проверьте вход и подписку в Яндекс Музыке.");
+            }
             if(action=="genre")
             {
                 var url=service=="youtube"?"https://www.youtube.com/results?search_query=":new Uri(page.Url).GetLeftPart(UriPartial.Authority)+"/search?text=";
@@ -218,6 +235,23 @@ internal sealed class BrowserController : IAsyncDisposable
         var text=" "+Normalize((snapshot["title"]?.GetValue<string>()??"")+" "+(snapshot["artist"]?.GetValue<string>()??""))+" ";
         var words=Normalize(query).Split(' ',StringSplitOptions.RemoveEmptyEntries);
         return words.Length>0&&words.All(word=>text.Contains(" "+word+" "));
+    }
+    internal static async Task<JsonElement> WaveOptionsAsync(IPage page,string script,string? required=null)
+    {
+        async Task<JsonElement> Read()=>await page.EvaluateAsync<JsonElement>(script,new{action="wave_list",service="yandex"});
+        bool Found(JsonElement items)=>items.GetArrayLength()>0&&(required==null||items.EnumerateArray().Any(item=>item.GetProperty("id").GetString()==required));
+        var options=await Read();
+        if(Found(options))return options;
+        // Follow the site's own navigation so its SPA keeps the current player alive.
+        var home=await page.EvaluateAsync<bool>(script,new{action="wave_home_target",service="yandex"});
+        if(home&&!await ClickControlAsync(page,"wave-home"))throw new InvalidOperationException("Не удалось открыть Мою волну. Закройте диалог в музыкальной вкладке.");
+        for(var i=0;i<24;i++)
+        {
+            await Task.Delay(250);options=await Read();if(Found(options))return options;
+        }
+        if(required==null&&options.GetArrayLength()>0)return options;
+        if(required!=null&&options.GetArrayLength()>0)throw new InvalidOperationException("Выбранная подборка больше недоступна. Обновите список Моей волны.");
+        throw new InvalidOperationException("Подборки Моей волны пока недоступны. Откройте «Моя волна» в Яндекс Музыке и проверьте вход в аккаунт и подписку, затем обновите список.");
     }
     internal static async Task SearchYandexAsync(IPage page,string query,string script)
     {

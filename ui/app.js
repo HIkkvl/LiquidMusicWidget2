@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const clone = value => JSON.parse(JSON.stringify(value));
 const defaultBindings = Object.fromEntries([['toggle','Num0'],['next','Num6'],['previous','Num4'],['play_pause','Num5'],['stop','Num2'],['like','Num1'],['voice','Num3']].map(([action,key]) => [action,{key,ctrl:false,alt:false,shift:false}]));
-const fallbackGenres = ['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'];
+let wavesKey=null,wavesAttempted=false,wavesLoading=false,waveSelecting=false,waveOrigin=null;
 let configuration = null;
 let currentState = {};
 let editing = {};
@@ -34,32 +34,39 @@ async function command(action,value) {
   if (!result.ok) toast(result.error);
   return result;
 }
-function renderGenres(genres) {
+function renderWaves(waves=[],message='Подключите Яндекс Музыку, чтобы увидеть подборки Моей волны.') {
+  const key=JSON.stringify([waves,waves.length?'':message]);if(key===wavesKey)return;wavesKey=key;
   $('genres').replaceChildren();
-  genres.forEach((genre,index)=>{
-    const row=document.createElement('button');
-    row.className='genre';
-    row.title='Найти плейлисты: '+genre;
-    row.setAttribute('aria-label','Найти плейлисты жанра '+genre);
-    const img=document.createElement('img');
-    img.src='assets/genre-'+index+'.svg';
-    img.alt='';
-    const text=document.createElement('span');
-    text.className='genre-name';text.textContent=genre;
+  if(!waves.length){const hint=document.createElement('p');hint.className='wave-empty';hint.textContent=message;$('genres').append(hint);return;}
+  waves.forEach((wave,index)=>{
+    const row=document.createElement('button');row.type='button';row.className='genre';
+    row.title='Включить волну: '+wave.title;row.setAttribute('aria-label',row.title);row.disabled=!!wave.disabled;
+    const img=document.createElement('img');img.alt='';img.referrerPolicy='no-referrer';
+    const fallback='assets/genre-'+(index%14)+'.svg';
+    img.src=/^https:\/\//i.test(wave.artwork||'')?wave.artwork:fallback;
+    img.addEventListener('error',()=>{if(!img.src.endsWith('/'+fallback))img.src=fallback;});
+    const text=document.createElement('span');text.className='genre-name';text.textContent=wave.title;
     const arrow=document.createElementNS('http://www.w3.org/2000/svg','svg');
-    const use=document.createElementNS('http://www.w3.org/2000/svg','use');
-    use.setAttribute('href','#i-chevron');arrow.append(use);
-    row.append(img,text,arrow);
+    const use=document.createElementNS('http://www.w3.org/2000/svg','use');use.setAttribute('href','#i-chevron');arrow.append(use);row.append(img,text,arrow);
     row.addEventListener('click',async()=>{
-      const result=await command('genre',genre);
-      if(result.ok) {
-        document.querySelectorAll('.genre').forEach(el=>el.classList.remove('selected'));
-        row.classList.add('selected');
-        toast('Поиск подборок «'+genre+'» в Яндекс Музыке');
-      }
+      if(wavesLoading||waveSelecting)return;waveSelecting=true;row.disabled=true;
+      try{
+        const result=await command('wave',wave.id);
+        if(result.ok){document.querySelectorAll('.genre').forEach(el=>el.classList.remove('selected'));row.classList.add('selected');toast('Выбрана волна «'+wave.title+'»');}
+      }finally{waveSelecting=false;row.disabled=!!wave.disabled;}
     });
     $('genres').append(row);
   });
+}
+async function refreshWaves() {
+  if(wavesLoading)return;wavesLoading=true;wavesAttempted=true;
+  const button=$('refresh-waves');button.disabled=true;button.textContent='Загрузка…';
+  try{
+    const result=await invoke('get_waves');
+    if((configuration?.service||'yandex')!=='yandex')return;
+    if(result.ok){waveOrigin=result.wave_origin||waveOrigin;renderWaves(result.waves||[],'В Моей волне пока нет доступных подборок.');}
+    else renderWaves([],result.error||'Не удалось загрузить Мою волну. Обновите список.');
+  }finally{wavesLoading=false;button.disabled=false;button.textContent='Обновить';}
 }
 function updateShortcuts() {
   if(!configuration) return;
@@ -249,6 +256,15 @@ function renderState(snapshot) {
   if(snapshot.browser&&configuration){configuration.browser=snapshot.browser;renderBrowserConnection(snapshot.browser);}
   renderVoice(snapshot.voice);
   const connected=!!snapshot.connected;
+  const waveService=configuration?.service||snapshot.service||'yandex';
+  document.querySelector('.genres-section').hidden=waveService!=='yandex';
+  if(waveService==='yandex'){
+    if(waveOrigin&&snapshot.wave_origin&&waveOrigin!==snapshot.wave_origin){wavesAttempted=false;renderWaves();}
+    if(snapshot.wave_origin)waveOrigin=snapshot.wave_origin;
+    if(snapshot.waves?.length){renderWaves(snapshot.waves);wavesAttempted=true;}
+    else if(connected&&!wavesAttempted&&!wavesLoading)void refreshWaves();
+    if(!connected){wavesAttempted=false;waveOrigin=null;renderWaves();}
+  }
   const hasTrack=connected && snapshot.title && snapshot.title!=='Ожидаю воспроизведение';
   $('track-title').textContent=hasTrack?snapshot.title:'В ожидании музыки';
   $('track-title').title=hasTrack?snapshot.title:'';
@@ -368,7 +384,7 @@ async function connect() {
   configuration=await invoke('get_settings');
   if(!configuration.bindings){toast(configuration.error||'Не удалось загрузить настройки');api=null;return;}
   $('on-top').checked=configuration.on_top;$('startup').checked=configuration.startup;
-  renderGenres(configuration.genres);updateShortcuts();
+  updateShortcuts();
   fx={...fx,...(configuration.fx||{})};
   applyQuality(configuration.quality || 'high');
   if(configuration.hotkey_error)toast(configuration.hotkey_error);
@@ -380,6 +396,7 @@ async function connect() {
     else if(!pollTimer){poll();pollTimer=setInterval(poll,700);}
   });
 }
+$('refresh-waves').addEventListener('click',refreshWaves);
 $('settings-button').addEventListener('click',showSettings);
 $('keys-button').addEventListener('click',showSettings);
 document.querySelectorAll('.service-tab').forEach(t=>t.addEventListener('click',()=>switchService(t.dataset.service)));
@@ -411,6 +428,6 @@ document.addEventListener('keydown',event=>{
   if(event.code==='Escape'){event.preventDefault();invoke('hide');}
   if(event.code==='Space' && !['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName)){event.preventDefault();command('play_pause');}
 });
-renderGenres(fallbackGenres);
+renderWaves();
 window.addEventListener('liquidready',connect);
 if(window.liquid?.api)connect();

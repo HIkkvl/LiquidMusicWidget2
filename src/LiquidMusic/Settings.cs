@@ -35,7 +35,6 @@ internal sealed class Settings
         ["toggle"]="Показать / скрыть", ["next"]="Следующий трек", ["previous"]="Предыдущий трек",
         ["play_pause"]="Пауза / продолжить", ["stop"]="Остановить воспроизведение", ["like"]="Лайк / убрать лайк", ["voice"]="Голосовая команда"
     };
-    public static readonly string[] Genres = ["Хип-хоп","Рок","Электроника","Поп","Инди","Метал","Альтернатива","Джаз","Релакс","Лоу-фай","R&B","Классика","Техно","Ретро"];
     private readonly string path;
     public JsonObject Value { get; private set; }
     public Settings(string? file = null)

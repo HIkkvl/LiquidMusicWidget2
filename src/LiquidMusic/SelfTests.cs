@@ -174,6 +174,26 @@ internal static class SelfTests
             await BrowserController.SearchYandexAsync(page,"Династия",script);
             Check(await page.EvaluateAsync<bool>("()=>window.searchClicks===2&&!document.querySelector('#test-audio').paused"),"Retry a visible card whose first click had no effect");
             passed.Add("Trusted background input, ignored-first-click retry, paused-track resume, overlay rejection and native media playback");
+            var waveFixture=File.ReadAllText(Path.Combine(AppPaths.Root,"tests","fixtures","yandex-wave.html"));
+            await page.UnrouteAllAsync();
+            await page.RouteAsync("**/*",route=>route.FulfillAsync(new(){ContentType="text/html; charset=utf-8",Body=waveFixture}));
+            foreach(var domain in new[]{"music.yandex.ru","music.yandex.kz","music.yandex.com"})
+            {
+                await page.GotoAsync("https://"+domain+"/search?text=old");
+                var waves=await BrowserController.WaveOptionsAsync(page,script);
+                Check(waves.GetArrayLength()==4,"Only visible wave cards, including unavailable cards: "+domain);
+                Check(waves[0].GetProperty("title").GetString()=="Это поп!","Nested wave card is not duplicated");
+                Check(waves[3].GetProperty("disabled").GetBoolean(),"Unavailable wave stays disabled");
+                Check(await page.EvaluateAsync<int>("()=>window.homeClicks")==1,"Uses existing My Wave navigation");
+                var waveTarget=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query="Русский рок"});
+                Check(waveTarget.GetProperty("found").GetBoolean()&&await BrowserController.ClickControlAsync(page,"wave"),"Select wave with trusted input");
+                Check(await page.EvaluateAsync<bool>("()=>window.waveClicks.join(',')==='rock'&&document.querySelector('.Meta_title').textContent==='Текущий трек'"),"Click reaches wave control and keeps player alive");
+                waveTarget=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query="Посторонняя подборка"});
+                Check(!waveTarget.GetProperty("found").GetBoolean(),"Unrelated content cannot be selected as a wave");
+                waveTarget=await page.EvaluateAsync<JsonElement>(script,new{action="wave_target",service="yandex",query="Недоступная волна"});
+                Check(!waveTarget.GetProperty("found").GetBoolean(),"Disabled wave cannot be selected");
+            }
+            passed.Add("Dynamic My Wave cards, regional navigation, disabled cards and trusted selection without search");
             Write("browser-selftest.json",new{ok=true,passed});return 0;
         }
         catch(Exception error){AppPaths.Log(error);Write("browser-selftest.json",new{ok=false,passed,error=error.ToString()});return 1;}

@@ -51,11 +51,57 @@
     like:/мне нравится|понравивш|нравится|\blike\b|liked|unlike|ұнайды/i
   };
   const volumeInput=document.querySelector('input[type="range"][aria-label*="громк" i],input[type="range"][aria-label*="volume" i]');
+  // Read only rendered controls belonging to My Wave, never search results or account storage.
+  const waveOptions=()=>{
+    if(service!=='yandex')return [];
+    const roots=[...document.querySelectorAll('[class*="vibe" i],[class*="mywave" i],[class*="my-wave" i],[aria-label="Моя волна"]')];
+    const interactive='button,[role="button"],a,[tabindex="0"]';
+    const card=el=>String(el.className).split(/\s+/).some(name=>/(?:item|card|slide|option|pin)(?:_|$)/i.test(name)&&!/(?:^|_)(?:list|items|cards|container|content|title|image|icon|cover|text)(?:_|$)/i.test(name));
+    const candidates=new Set();
+    for(const root of roots){
+      if(root.matches(interactive)||card(root))candidates.add(root);
+      for(const el of root.querySelectorAll(interactive+',[class*="item" i],[class*="card" i],[class*="slide" i],[class*="option" i],[class*="pin" i]')){
+        if(el.matches(interactive)||card(el))candidates.add(el);
+      }
+    }
+    const seen=new Set(),result=[];
+    for(const el of candidates){
+      if(el.closest('nav,aside,'+playerSelector)||el.hidden||getComputedStyle(el).display==='none'||getComputedStyle(el).visibility==='hidden')continue;
+      // Use the outer clickable card when its children repeat the same title.
+      if([...candidates].some(parent=>parent!==el&&parent.contains(el)&&card(parent)))continue;
+      const title=(el.innerText?.trim()||el.getAttribute('aria-label')||el.querySelector('img')?.alt||'').replace(/\s+/g,' ').trim();
+      if(!title||title.length>100||/^(?:моя волна|воспроизведение|воспроизвести|слушать|пауза|настроить|настройки|войти|play|pause|settings|закрыть|далее|назад)(?:$|[ :])/i.test(title)||seen.has(title))continue;
+      const rect=el.getBoundingClientRect();if(!rect.width||!rect.height)continue;
+      const image=el.querySelector('img');
+      const artwork=image?.currentSrc||image?.src||'';
+      const control=el.matches(interactive)?el:el.querySelector('button,[role="button"],a')||el;
+      seen.add(title);result.push({id:title,title,artwork:/^https:\/\//i.test(artwork)?artwork:'',disabled:!enabled(el)||!enabled(control),element:control});
+      if(result.length>=60)break;
+    }
+    return result;
+  };
+  if(action==='wave_list')return waveOptions().map(({element,...item})=>item);
+  if(action==='wave_target'){
+    document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+    const item=waveOptions().find(item=>item.id===query&&!item.disabled);
+    if(!item)return {found:false};
+    item.element.setAttribute('data-liquid-control','wave');return {found:true};
+  }
+  if(action==='wave_home_target'){
+    document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+    const links=[...document.querySelectorAll('a[href]')].filter(el=>{
+      const url=new URL(el.href,location.href);
+      return url.origin===location.origin&&(/^(?:Моя волна|Главная)$/i.test((el.innerText||el.getAttribute('aria-label')||'').trim())||url.pathname==='/'&&!!el.closest('nav,[class*="Sidebar"],[class*="Navigation"]'));
+    });
+    const home=links.find(el=>/Моя волна/i.test(el.innerText||el.getAttribute('aria-label')||''))||links[0];
+    if(!home)return false;
+    home.setAttribute('data-liquid-control','wave-home');return true;
+  }
   if(action==='snapshot') {
     const image=players.flatMap(root=>[...root.querySelectorAll('img')])[0];
     const like=buttons.find(el=>patterns.like.test(label(el))&&!/не нравится|dislike|ұнамайды/i.test(label(el)))||document.querySelector('#segmented-like-button button,ytd-segmented-like-dislike-button-renderer like-button-view-model button');
     return {
-      connected:true,service,
+      connected:true,service,wave_origin:location.origin,waves:waveOptions().map(({element,...item})=>item),
       title:metadata?.title||text(['[class*="PlayerBar"] [class*="Meta_title"]','[class*="PlayerBar"] [class*="trackTitle"]','[class*="PlayerBar"] [class*="title"]','ytmusic-player-bar .title','ytd-watch-metadata h1'])||'В ожидании музыки',
       artist:metadata?.artist||text(['[class*="PlayerBar"] [class*="Meta_artists"]','[class*="PlayerBar"] [class*="artists"]','ytmusic-player-bar .byline','ytd-video-owner-renderer #channel-name'])||'',
       artwork:metadata?.artwork?.at(-1)?.src||image?.currentSrc||image?.src||'',

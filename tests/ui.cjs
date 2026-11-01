@@ -12,10 +12,12 @@ const {pathToFileURL} = require('node:url');
    const bindings=Object.fromEntries([['toggle','Num0'],['next','Num6'],['previous','Num4'],['play_pause','Num5'],['stop','Num2'],['like','Num1'],['voice','Num3']].map(([a,key])=>[a,{key,ctrl:false,alt:false,shift:false}]));
    window.voice={phase:'idle',message:'Скажите: «включи трек Династия»',text:''};
    window.calls=[];
+   window.waves=['Это поп!','Саундскейп','Незнакомое','Бежать быстрее ветра','Артист Real Girl','Встряхнуть Мою волну','Русский рок','Хочется электроники','Мистическое настроение','Инди','Метал','Джаз','Релакс','Ретро'].map(title=>({id:title,title,artwork:''}));
    window.browserStatus={name:'Brave',supported:true,configured:false,connected:false,state:'not_configured',message:'Подключите браузер один раз',shortcuts_updated:false};
    window.liquid={api:{
      get_settings:async()=>({backend:"csharp",browser:window.browserStatus,bindings,actions:{toggle:'Показать / скрыть',next:'Следующий трек',previous:'Предыдущий трек',play_pause:'Пауза / продолжить',stop:'Остановить воспроизведение',like:'Лайк / убрать лайк',voice:'Голосовая команда'},keys:['Num0','Num1','Num2','Num3','Num4','Num5','Num6','F6','F8'],genres:['Хип-хоп','Рок','Электроника','Поп','Инди','Метал','Альтернатива','Джаз','Релакс','Лоу-фай','R&B','Классика','Техно','Ретро'],on_top:true,startup:false}),
-     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:true,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus}),
+     get_state:async()=>({title:'NIGHT DRIVE',artist:'PHARAOH',playing:true,liked:false,connected:true,artwork:'',position:102,duration:197,volume:.68,voice:window.voice,browser:window.browserStatus,waves:window.waves,wave_origin:'https://music.yandex.kz'}),
+     get_waves:async()=>window.waveError?{ok:false,error:'Войдите в Яндекс Музыку'}:{ok:true,waves:window.waves,wave_origin:'https://music.yandex.kz'},
      start_voice:async()=>{window.voice={phase:'listening',message:'Слушаю…',text:''};return {ok:true};},
      cancel_voice:async()=>{window.voice={phase:'idle',message:'Запись отменена',text:''};return {ok:true};},
      command:async(...args)=>{window.calls.push(args);return {ok:true};},
@@ -37,6 +39,8 @@ const {pathToFileURL} = require('node:url');
  await page.goto(pathToFileURL(path.resolve('ui/index.html')).href);
  await page.waitForFunction(()=>document.getElementById('track-title').textContent==='NIGHT DRIVE');
  assert.equal(await page.locator('.genre').count(),14);
+ assert.equal(await page.locator('.genres-section h2').textContent(),'Моя волна');
+ assert.equal(await page.locator('.genre-name').first().textContent(),'Это поп!');
  await page.locator('#voice-button').click();
  await page.waitForFunction(()=>document.getElementById('voice-button').getAttribute('aria-pressed')==='true');
  assert.equal(await page.locator('#voice-status').textContent(),'Слушаю…');
@@ -53,6 +57,14 @@ const {pathToFileURL} = require('node:url');
  assert.deepEqual(await page.evaluate(()=>window.calls.map(c=>c[0])),['next','stop','like']);
  await page.locator('.genre').nth(0).click();
  assert.equal(await page.locator('.genre.selected').count(),1);
+ assert.deepEqual(await page.evaluate(()=>window.calls.at(-1)),['wave','Это поп!'],'Wave selection uses its exact ID, never genre search');
+ await page.evaluate(()=>{window.savedWaves=window.waves;window.waves=[];window.waveError=true;});
+ await page.locator('#refresh-waves').click();
+ assert.equal(await page.locator('.genre').count(),0);
+ assert.equal(await page.locator('.wave-empty').textContent(),'Войдите в Яндекс Музыку');
+ await page.evaluate(()=>{window.waves=window.savedWaves;window.waveError=false;});
+ await page.locator('#refresh-waves').click();
+ assert.equal(await page.locator('.genre').count(),14);
  await page.evaluate(()=>document.getElementById('toast').hidden=true);
  await page.screenshot({path:'tests/ui-preview.png'});
  await page.locator('#settings-button').click();
@@ -117,5 +129,5 @@ const {pathToFileURL} = require('node:url');
  assert.ok(saveBounds.y>=0 && saveBounds.y+saveBounds.height<=600,'Save remains reachable on short screens');
  assert.deepEqual(errors,[]);
  await browser.close();
- console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, 14 genres, 7 hotkeys, settings save, narrow/short viewport, no JS errors');
+ console.log('PASS UI: voice record/cancel/wait/transcript, transport, favorites, dynamic My Wave cards, refresh/error states, 7 hotkeys, settings save, narrow/short viewport, no JS errors');
 })().catch(e=>{console.error(e);process.exit(1);});

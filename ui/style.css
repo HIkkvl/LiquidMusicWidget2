@@ -470,3 +470,9 @@ body[data-quality="low"] .cover-shine{display:none}
   .play-button{width:48px;height:48px}
   .voice-panel{padding:8px 10px}
 }
+
+.genres-section[hidden]{display:none}
+.wave-refresh{font:inherit;font-size:12px;color:var(--text-2);background:transparent;border:0;padding:4px;cursor:pointer}
+.wave-refresh:disabled{opacity:.5;cursor:wait}
+.wave-empty{margin:0;padding:14px;color:var(--text-2);font-size:13px;line-height:1.5}
+.genre:disabled{opacity:.45;cursor:default}

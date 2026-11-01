@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8">
+<!-- Synthetic fixture: site navigation preserves the player; cards use nested controls. -->
+<nav><a href="/" id="wave-home">Моя волна</a><a href="/search">Поиск</a></nav>
+<div class="PlayerBar_root"><span class="Meta_title">Текущий трек</span><button aria-label="Пауза"></button></div>
+<main>
+  <button>Посторонняя подборка</button>
+  <section class="VibeBlock_root" hidden>
+    <button aria-label="Воспроизведение Моей волны">Моя волна</button>
+    <div class="VibeWheel_items">
+    <div class="VibeWheel_item" data-wave="pop"><button>Это поп!</button></div>
+    <button class="VibeWheel_item" data-wave="rock">Русский рок</button>
+    <button class="VibeWheel_item" data-wave="mix">Встряхнуть Мою волну</button>
+    <button class="VibeWheel_item" disabled>Недоступная волна</button>
+    <button class="VibeWheel_item" style="display:none">Скрытая волна</button>
+    </div>
+    <button>Настроить Мою волну</button>
+  </section>
+</main>
+<script>
+window.homeClicks=0;window.waveClicks=[];
+document.getElementById('wave-home').addEventListener('click',event=>{
+  event.preventDefault();if(!event.isTrusted)return;
+  window.homeClicks++;document.querySelector('.VibeBlock_root').hidden=false;
+});
+document.addEventListener('click',event=>{
+  const wave=event.target.closest('[data-wave]');
+  if(wave&&event.isTrusted)window.waveClicks.push(wave.dataset.wave);
+});
+</script>

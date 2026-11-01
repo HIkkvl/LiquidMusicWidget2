@@ -115,11 +115,11 @@ internal sealed class MainForm : Form
             while(DateTime.UtcNow<deadline)
             {
                 await Task.Delay(300);
-                result=await view.ExecuteScriptAsync("(()=>({bridge:!!window.liquid?.api,ready:!!configuration?.bindings,rows:document.querySelectorAll('.genre').length,voice:!!document.getElementById('voice-button'),native:configuration?.backend==='csharp'}))()");
+                result=await view.ExecuteScriptAsync("(()=>({bridge:!!window.liquid?.api,ready:!!configuration?.bindings,waves:!!document.getElementById('refresh-waves'),voice:!!document.getElementById('voice-button'),native:configuration?.backend==='csharp'}))()");
                 var data=JsonNode.Parse(result);
                 if(data?["ready"]?.GetValue<bool>()==true)
                 {
-                    if(data["rows"]?.GetValue<int>()!=14||data["native"]?.GetValue<bool>()!=true)throw new Exception("Native UI bridge returned unexpected state: "+result);
+                    if(data["waves"]?.GetValue<bool>()!=true||data["native"]?.GetValue<bool>()!=true)throw new Exception("Native UI bridge returned unexpected state: "+result);
                     var foreground=Native.GetForegroundWindow();
                     StartVoice();
                     var voiceDeadline=DateTime.UtcNow.AddSeconds(3);
@@ -169,7 +169,7 @@ internal sealed class MainForm : Form
     {
         var result=(JsonObject)settings.Value.DeepClone();
         result["actions"]=JsonSerializer.SerializeToNode(Settings.Actions);result["keys"]=JsonSerializer.SerializeToNode(GlobalHotkeys.Keys.Keys);
-        result["genres"]=JsonSerializer.SerializeToNode(Settings.Genres);result["startup"]=StartupEnabled();result["hotkey_error"]=hotkeyError;
+        result["startup"]=StartupEnabled();result["hotkey_error"]=hotkeyError;
         result["backend"]="csharp";
         result["browser"]=browser.Status();
         result["deepseek"]=JsonSerializer.SerializeToNode(assistant.Status());
@@ -183,6 +183,9 @@ internal sealed class MainForm : Form
             case "get_state":return State();
             case "get_settings":return Configuration();
             case "get_browser_status":return browser.Status();
+            case "get_waves":
+                var waves=await browser.CommandAsync("yandex","wave_list");
+                waves["ok"]=true;return waves;
             case "set_assistant_provider":
                 if(voice.Busy)throw new InvalidOperationException("Дождитесь завершения голосового запроса.");
                 assistant.SelectProvider(Arg(0)!.GetValue<string>());
@@ -288,7 +291,7 @@ internal sealed class MainForm : Form
     }
     private async Task RunCommandAsync(string action,JsonNode? value)
     {
-        var result=await browser.CommandAsync(settings.Service,action,action is "genre" or "search_play"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
+        var result=await browser.CommandAsync(settings.Service,action,action is "genre" or "search_play" or "wave"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
         snapshot=result;
         if(action is not("volume" or "genre" or "open"))Notify(action,result);
     }
