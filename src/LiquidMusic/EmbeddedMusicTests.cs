@@ -42,8 +42,10 @@ internal static class EmbeddedMusicTests
         {
             var origin="https://music.yandex."+domain+"/";
             var login=new Uri(EmbeddedMusicHost.LoginUrl("yandex",origin));
-            Check(login.Host=="passport.yandex.ru"&&login.AbsolutePath=="/auth","Direct Yandex ID sign-in");
+            Check(login.Host=="passport.yandex."+domain&&login.AbsolutePath=="/auth","Sign-in domain matches selected Music domain");
             Check(Uri.UnescapeDataString(login.Query)=="?retpath="+origin,"Sign-in preserves regional music destination");
+            var switchAccount=new Uri(EmbeddedMusicHost.LoginUrl("yandex",origin,true));
+            Check(switchAccount.Host==login.Host&&switchAccount.AbsolutePath=="/auth/add","Account switching preserves selected domain");
         }
         Check(new Uri(EmbeddedMusicHost.LoginUrl("yandex","https://music.yandex.kz/",true)).AbsolutePath=="/auth/add","Connected account opens account switcher");
         var testRoot=Path.Combine(AppPaths.Data,"embedded-tests",Guid.NewGuid().ToString("N"));
@@ -91,7 +93,7 @@ internal static class EmbeddedMusicTests
             var snapshot=await controller.SnapshotAsync("yandex");
             checks.Add("Yandex Music loads inside hidden WebView2; fresh profile needs user sign-in");
             await page.GotoAsync(EmbeddedMusicHost.LoginUrl("yandex","https://music.yandex.kz/"),new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=45000});
-            Check(new Uri(page.Url).Host=="passport.yandex.ru","Official Yandex ID page opens directly");
+            Check(new Uri(page.Url).Host=="passport.yandex.kz","Official regional Yandex ID page opens directly");
             await page.Locator("input:visible:not([type=hidden])").First.WaitForAsync(new(){Timeout=30000});
             checks.Add("Official Yandex ID sign-in form loads directly with regional return address");
             Write(new{ok=true,checks,service="yandex",signedIn=snapshot["signed_in"]?.GetValue<bool>()==true});return;
@@ -137,9 +139,9 @@ internal static class EmbeddedMusicTests
         Check(Native.GetForegroundWindow()==foreground,"Restoring saved music session stays invisible");
         checks.Add("Persistent login cookie survives music-engine restart");
         await restored.ShowLoginAsync("yandex","https://music.yandex.kz/");
-        await restoredPage.WaitForURLAsync("https://passport.yandex.ru/auth?**");
+        await restoredPage.WaitForURLAsync("https://passport.yandex.kz/auth?**");
         await restored.EnsureServiceAsync("yandex","https://music.yandex.kz/");
-        Check(new Uri(restoredPage.Url).Host=="passport.yandex.ru","Widget polling does not navigate away from sign-in");
+        Check(new Uri(restoredPage.Url).Host=="passport.yandex.kz","Widget polling does not navigate away from regional sign-in");
         var loginWindow=restored.Windows.Single();
         var workArea=Screen.FromControl(loginWindow).WorkingArea;
         Check(loginWindow.LoginVisible&&loginWindow.Width==Math.Min(1040,Math.Max(320,workArea.Width-32)),"Sign-in uses enlarged window fitted to monitor");

@@ -167,7 +167,7 @@ internal sealed class EmbeddedMusicHost : IDisposable
             throw new ArgumentException("Ожидался адрес музыкального сервиса.",nameof(origin));
         var destination=Uri.EscapeDataString(origin);
         return service=="youtube"?"https://accounts.google.com/ServiceLogin?continue="+destination:
-            "https://passport.yandex.ru/auth"+(signedIn?"/add":"")+"?retpath="+destination;
+            "https://passport."+new Uri(origin).Host["music.".Length..]+"/auth"+(signedIn?"/add":"")+"?retpath="+destination;
     }
     public void Dispose()
     {
