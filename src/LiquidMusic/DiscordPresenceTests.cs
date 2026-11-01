@@ -20,6 +20,22 @@ internal static class DiscordPresenceTests
         Check(activity["type"]!.GetValue<int>() == 2 && activity["details"]!.GetValue<string>() == "Династия" && activity["state"]!.GetValue<string>() == "VILLIAN", "Listening activity text");
         Check(activity["timestamps"]!["start"]!.GetValue<long>() == 1_000_000 - 30 && activity["timestamps"]!["end"]!.GetValue<long>() == 1_000_000 - 30 + 201, "Progress timestamps");
         Check(activity["assets"]!["large_image"]!.GetValue<string>().StartsWith("https://"), "Artwork URL");
+        var platformIcons=new HashSet<string>();
+        foreach(var service in new[]{"yandex","youtube","spotify","soundcloud"})
+        {
+            var serviceTrack=DiscordPresence.ParseTrack(snapshot) with {Service=service};
+            var serviceActivity=DiscordPresence.BuildActivity(serviceTrack,options,1_000_000)!;
+            var assets=serviceActivity["assets"]!;
+            var icon=assets["small_image"]!.GetValue<string>();
+            Check(Uri.TryCreate(icon,UriKind.Absolute,out var iconUri)&&iconUri.Scheme=="https"&&iconUri.AbsolutePath.EndsWith(".png"),"Discord platform badge uses a public PNG: "+service);
+            Check(platformIcons.Add(icon),"Each music platform has a distinct icon");
+            Check(assets["small_text"]!.GetValue<string>()==MusicServices.Name(service),"Badge tooltip names the playing platform");
+            Check(assets["large_image"]!.GetValue<string>()==snapshot["artwork"]!.GetValue<string>(),"Platform badge preserves the track cover");
+            var paused=DiscordPresence.BuildActivity(serviceTrack with {Playing=false},options with {ShowPaused=true},1_000_000)!;
+            Check(paused["assets"]!["small_image"]!.GetValue<string>()==icon,"Pause keeps the platform badge");
+        }
+        var unknown=DiscordPresence.BuildActivity(DiscordPresence.ParseTrack(snapshot) with {Service="unknown"},options,1)!;
+        Check(unknown["assets"]!["small_image"]==null,"Unknown platform does not show an incorrect badge");
 
         var noArtwork = DiscordPresence.BuildActivity(DiscordPresence.ParseTrack(snapshot), options with { Artwork = false }, 1_000_000)!;
         Check(noArtwork["assets"] == null, "Artwork can be switched off");

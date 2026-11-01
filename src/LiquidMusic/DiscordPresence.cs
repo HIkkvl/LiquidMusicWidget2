@@ -64,6 +64,17 @@ internal sealed class DiscordPresence : IAsyncDisposable
 
     private static bool ValidImage(string url) => url.Length is > 0 and <= 256 && Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
+    // Public PNG assets published by the services. Discord fetches these just
+    // like the album cover; no uploaded assets or extra Application ID setup.
+    private static string? PlatformIcon(string service)=>service switch
+    {
+        "yandex"=>"https://yastatic-net.ru/s3/music-frontend-static/music/v4.1724.1/apple-touch-icon.png",
+        "youtube"=>"https://music.youtube.com/img/favicon_144.png",
+        "spotify"=>"https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png",
+        "soundcloud"=>"https://a-v2.sndcdn.com/assets/images/sc-icons/ios-a62dfc8fe7.png",
+        _=>null
+    };
+
     /// <summary>Описание активности для SET_ACTIVITY; null — ничего не показывать (и снять статус).</summary>
     internal static JsonObject? BuildActivity(Track track, Options options, long nowSeconds)
     {
@@ -84,7 +95,15 @@ internal sealed class DiscordPresence : IAsyncDisposable
             activity["timestamps"] = timestamps;            // с «end» Discord рисует полоску прогресса
         }
         if (options.Artwork && ValidImage(track.Artwork))
-            activity["assets"] = new JsonObject { ["large_image"] = track.Artwork, ["large_text"] = Clip(track.Album.Length > 0 ? track.Album : service) };
+        {
+            var assets = new JsonObject { ["large_image"] = track.Artwork, ["large_text"] = Clip(track.Album.Length > 0 ? track.Album : service) };
+            if(PlatformIcon(track.Service) is string icon)
+            {
+                assets["small_image"]=icon;
+                assets["small_text"]=service;
+            }
+            activity["assets"]=assets;
+        }
         return activity;
     }
 
@@ -143,7 +162,7 @@ internal sealed class DiscordPresence : IAsyncDisposable
                     }
                     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                     var activity = BuildActivity(t, o, now);
-                    var key = activity == null ? "" : t.Title + "\n" + t.Artist + "\n" + t.Playing + "\n" + o.Artwork + "\n" + t.Artwork;
+                    var key = activity == null ? "" : t.Title + "\n" + t.Artist + "\n" + t.Playing + "\n" + o.Artwork + "\n" + t.Artwork + "\n" + t.Service + "\n" + t.Album;
                     var start = activity == null ? 0 : now - (long)Math.Floor(t.Position);
                     var changed = key != lastKey || (activity != null && t.Playing && Math.Abs(start - lastStart) > 3);   // смена трека/паузы или перемотка
                     if (changed && DateTime.UtcNow - lastSent >= TimeSpan.FromSeconds(5))                                  // лимит Discord на обновления
