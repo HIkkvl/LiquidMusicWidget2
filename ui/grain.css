@@ -1,6 +1,6 @@
 /* Дизайн «Зерно»: монохром, размытые светлые потоки на чёрном, плёночное зерно, строки в [скобках] моноширинным шрифтом
    (подключается из design.js, действует при body[data-design="grain"]). Префикс html body поднимает специфичность над правилами сервисов. */
-html body[data-design="grain"]{--blue:#f4f4f4;--indigo:#c4c4c4;--pink:#e2e2e2;--violet:#8e8e8e;--teal:#ffffff;--accent:linear-gradient(120deg,#ffffff,#b8b8b8);--glass-shadow:0 18px 44px rgba(0,0,0,.55);
+html body[data-design="grain"]{--blue:#f4f4f4;--indigo:#c4c4c4;--pink:#e2e2e2;--violet:#8e8e8e;--teal:#ffffff;--accent:linear-gradient(120deg,#ffffff,#b8b8b8);--on-accent:#0a0a0a;--glass-shadow:0 18px 44px rgba(0,0,0,.55);
   --mono:"Roboto Mono","Cascadia Mono","SF Mono",Consolas,monospace;
   font-family:"Helvetica Neue","Inter","Segoe UI Variable Display","Segoe UI",Arial,sans-serif}
 

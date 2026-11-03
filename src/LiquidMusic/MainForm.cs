@@ -17,6 +17,10 @@ internal sealed class MainForm : Form
     private readonly EmbeddedMusicHost music;
     private readonly DeepSeekAssistant assistant;
     private readonly HandoffServer handoff;
+    private readonly RoomService room=new();   // совместное прослушивание: лидер управляет, гость слушает
+    private readonly SemaphoreSlim roomGate=new(1,1);
+    private RoomTrack? roomPending;
+    private string roomKey="";
     private readonly VoiceAssistant voice;
     private readonly NotifyIcon tray=new();
     private readonly System.Windows.Forms.Timer poll=new(){Interval=1200};
@@ -47,6 +51,7 @@ internal sealed class MainForm : Form
         assistant=new(settings);
         discord.Configure(settings.Value["discord"]);
         handoff=new(HandoffSnapshotAsync,HandoffCommandAsync);
+        room.TrackReceived+=OnRoomTrack;
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -58,7 +63,7 @@ internal sealed class MainForm : Form
         Controls.Add(view);
         var icon=Path.Combine(AppContext.BaseDirectory,"ui","assets","app.ico");
         Icon=File.Exists(icon)?new Icon(icon):SystemIcons.Application;
-        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query,command.Volume);if(UpdatePlayback(service,result))Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null,async(text,token)=>
+        voice=new(command=>OnUiAsync(async()=>{if(uiTest){snapshot=new(){["title"]="Тестовый трек",["connected"]=true};return;}RoomGuard(command.Action);var service=settings.Service;var result=await browser.CommandAsync(service,command.Action,command.Query,command.Volume);if(UpdatePlayback(service,result))Notify(command.Action,result);}),uiTest?(_=>Task.FromResult("следующий трек")):null,uiTest?(_=>Task.CompletedTask):null,async(text,token)=>
         {
             JsonObject context=new();
             await OnUiAsync(()=>{context=(JsonObject)snapshot.DeepClone();context["service"]=settings.Service;return Task.CompletedTask;});
@@ -126,6 +131,8 @@ internal sealed class MainForm : Form
             if(File.Exists(designUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(designUi));
             var discordUi=Path.Combine(AppContext.BaseDirectory,"ui","discord-settings.js");
             if(File.Exists(discordUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(discordUi));
+            var roomUi=Path.Combine(AppContext.BaseDirectory,"ui","room-settings.js");   // вкладка «Комната»
+            if(File.Exists(roomUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(roomUi));
             view.CoreWebView2.Navigate("https://liquid.local/index.html");
             view.CoreWebView2.NavigationCompleted+=(_,_)=>PushWindowPosition();
             try{await island.StartAsync(environment);ApplyCapture();}catch(Exception e){AppPaths.Log("Island init: "+e);}
@@ -202,7 +209,7 @@ internal sealed class MainForm : Form
     }
     private JsonObject State()=>new JsonObject(snapshot.Select(pair=>KeyValuePair.Create(pair.Key,pair.Value?.DeepClone())))
     {
-        ["voice"]=voice.Snapshot(),["quality"]=settings.Value["quality"]?.DeepClone(),["service"]=settings.Service,["browser"]=browser.Status()
+        ["room"]=room.Status(),["voice"]=voice.Snapshot(),["quality"]=settings.Value["quality"]?.DeepClone(),["service"]=settings.Service,["browser"]=browser.Status()
     };
     private object Configuration()
     {
@@ -247,6 +254,10 @@ internal sealed class MainForm : Form
                 assistant.DeleteKey();assistant.SetEnabled(false);
                 return new{ok=true,deepseek=assistant.Status()};
             case "get_handoff":return handoff.Status();
+            case "get_room":return room.Status();
+            case "room_create":{var created=await room.CreateAsync(Arg(0)?.GetValue<string>()??"");room.Publish(snapshot);return created;}
+            case "room_join":roomKey="";return await room.JoinAsync(Arg(0)?.GetValue<string>()??"",Arg(1)?.GetValue<string>()??"");
+            case "room_leave":await room.LeaveAsync();roomKey="";return new{ok=true};
             case "get_drop":return settings.Value["drop"]!.DeepClone();
             case "get_design":return new{ok=true,design=Settings.NormalizeDesign(settings.Value["design"])};
             case "set_design":
@@ -453,10 +464,54 @@ internal sealed class MainForm : Form
     }
     private async Task RunCommandAsync(string action,JsonNode? value)
     {
+        RoomGuard(action);
         var service=settings.Service;
         var result=await browser.CommandAsync(service,action,action is "genre" or "search_play" or "wave" or "spotify_playlist"?value?.GetValue<string>():null,action=="volume"?value?.GetValue<double>():null);
         if(!UpdatePlayback(service,result))return;
         if(action is not("volume" or "genre" or "open"))Notify(action,result);
+    }
+    // Гость только слушает: пауза, пропуск, выбор жанров и голосовые команды доступны лидеру. Громкость и лайк остаются у гостя.
+    private void RoomGuard(string action)
+    {
+        if(room.Role==RoomRole.Guest&&action is not("volume" or "like"))
+            throw new InvalidOperationException("Вы слушаете комнату: треками управляет лидер.");
+    }
+    private void OnRoomTrack(RoomTrack track)
+    {
+        roomPending=track;
+        if(!quitting&&!IsDisposed&&IsHandleCreated)_=Task.Run(()=>OnUiAsync(RoomApplyAsync));
+    }
+    // Лидер сообщает, что играет; у гостя тот же трек ищется и запускается в его собственном сервисе.
+    private async Task RoomApplyAsync()
+    {
+        if(!await roomGate.WaitAsync(0))return;   // идёт применение: последнее состояние подхватит цикл ниже
+        try
+        {
+            for(var track=Interlocked.Exchange(ref roomPending,null);track!=null;track=Interlocked.Exchange(ref roomPending,null))
+            {
+                if(room.Role!=RoomRole.Guest)return;
+                var service=settings.Service;
+                try
+                {
+                    JsonObject result;
+                    if(track.Key!=roomKey)
+                    {
+                        roomKey=track.Key;   // при неудаче поиска не повторяем его на каждом сообщении лидера
+                        result=await browser.CommandAsync(service,"search_play",track.Query);
+                        if(!track.Playing)result=await browser.CommandAsync(service,"pause");
+                    }
+                    else
+                    {
+                        var current=await browser.SnapshotAsync(service);
+                        if(current["busy"]!=null||(current["playing"]?.GetValue<bool>()==true)==track.Playing)continue;
+                        result=await browser.CommandAsync(service,track.Playing?"play":"pause");
+                    }
+                    UpdatePlayback(service,result);
+                }
+                catch(Exception error){AppPaths.Log(error);snapshot["error"]="Не удалось включить трек лидера: "+error.Message;}
+            }
+        }
+        finally{roomGate.Release();}
     }
     private bool UpdatePlayback(string service,JsonObject result)
     {
@@ -469,7 +524,7 @@ internal sealed class MainForm : Form
             }
             return false;
         }
-        snapshot=result;discord.Update(snapshot);
+        snapshot=result;discord.Update(snapshot);room.Publish(snapshot);
         return true;
     }
     private async Task RunActionAsync(string action,double? volume=null)
@@ -567,7 +622,7 @@ internal sealed class MainForm : Form
     {
         if(quitting)return;quitting=true;lifetime.Cancel();poll.Stop();wheelTimer.Stop();islandTimer.Stop();
         voice.Dispose();assistant.Dispose();hotkeys?.Dispose();wheel?.Dispose();showWait?.Unregister(null);showSignal.Dispose();tray.Visible=false;tray.Dispose();popup.Dispose();island.Dispose();
-        await discord.DisposeAsync();await handoff.DisposeAsync();await browser.DisposeAsync();Close();Application.Exit();
+        await discord.DisposeAsync();await room.DisposeAsync();await handoff.DisposeAsync();await browser.DisposeAsync();Close();Application.Exit();
     }
 }
 
