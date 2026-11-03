@@ -205,10 +205,12 @@ internal sealed class EmbeddedMusicHost : IDisposable
     internal sealed class MusicWindow : Form
     {
         internal readonly WebView2 View=new(){Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(18,18,22)};
-        private readonly Label address=new(){Dock=DockStyle.Bottom,Height=24,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft,ForeColor=Color.FromArgb(190,184,205)};
-        private readonly LoginHeader bar=new(){Dock=DockStyle.Top,Height=98,Padding=new(24,14,18,12)};
-        private readonly Panel footer=new(){Dock=DockStyle.Bottom,Height=44,Padding=new(24,0,12,0)};
+        private readonly LoginHeader bar;
+        private readonly LoginFooter footer=new(){Dock=DockStyle.Bottom,Height=38};
+        private readonly LoginViewFrame frame=new(){Dock=DockStyle.Fill};
         private readonly Func<string> design;
+        private LoginTheme theme=LoginTheme.For("aurora");
+        private Bitmap? backdrop;
         private bool shutdown;
         internal string Origin="";
         internal bool LoginVisible {get;private set;}
@@ -222,21 +224,46 @@ internal sealed class EmbeddedMusicHost : IDisposable
             Text="Вход · "+MusicServices.Name(service)+" — Liquid Music";
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
             Font=new Font("Segoe UI",10);DoubleBuffered=true;
-            var title=new Label{Text=Text,Dock=DockStyle.Fill,ForeColor=Color.White,Font=new Font("Segoe UI Semibold",17),TextAlign=ContentAlignment.MiddleLeft};
-            var done=new Button{Text="Вернуться в виджет   ×",Dock=DockStyle.Right,Width=200,FlatStyle=FlatStyle.Flat,ForeColor=Color.White,BackColor=Color.FromArgb(48,39,59),Cursor=Cursors.Hand};
-            done.FlatAppearance.BorderSize=0;
-            done.Click+=(_,_)=>{ReturnToBackground();UserReturned?.Invoke();};
-            foreach(var control in new Control[]{bar,title,address})control.MouseDown+=(_,e)=>{if(e.Button==MouseButtons.Left){Native.ReleaseCapture();Native.SendMessage(Handle,0xA1,2,0);}};
-            var hint=new Label{Text="Войдите в аккаунт — после входа останется только компактный виджет",Dock=DockStyle.Fill,ForeColor=Color.FromArgb(172,169,190),TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};
-            footer.Controls.Add(hint);
-            bar.Controls.Add(title);bar.Controls.Add(done);bar.Controls.Add(address);
-            Controls.Add(View);Controls.Add(footer);Controls.Add(bar);
+            bar=new LoginHeader(MusicServices.Name(service)){Dock=DockStyle.Top,Height=88};
+            bar.Done+=()=>{ReturnToBackground();UserReturned?.Invoke();};
+            bar.DragRequested+=Drag;footer.DragRequested+=Drag;
+            frame.Controls.Add(View);
+            Controls.Add(frame);Controls.Add(footer);Controls.Add(bar);
+            View.SizeChanged+=(_,_)=>RoundView();
             SizeChanged+=(_,_)=>{var old=Region;using var path=DesktopCapture.Rounded(ClientRectangle,LoginVisible?22:0);Region=LoginVisible?new Region(path):null;old?.Dispose();};
             FormClosing+=(_,e)=>{if(!shutdown){e.Cancel=true;ReturnToBackground();UserReturned?.Invoke();}};
         }
+        private void Drag(){Native.ReleaseCapture();Native.SendMessage(Handle,0xA1,2,0);}
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if(!LoginVisible||ClientSize.Width<2||ClientSize.Height<2){base.OnPaintBackground(e);return;}
+            if(backdrop==null||backdrop.Size!=ClientSize){backdrop?.Dispose();backdrop=LoginPaint.Backdrop(theme,ClientSize);}
+            e.Graphics.DrawImageUnscaled(backdrop,0,0);
+        }
+        // Rounded corners for the web page itself, like every panel of the widget.
+        private void RoundView()
+        {
+            if(!View.IsHandleCreated||View.Width<4||View.Height<4)return;
+            try
+            {
+                var region=LoginVisible?Native.CreateRoundRectRgn(0,0,View.Width+1,View.Height+1,LoginViewFrame.Radius*2,LoginViewFrame.Radius*2):0;
+                Native.SetWindowRgn(View.Handle,region,true);
+            }
+            catch(Exception error){AppPaths.Log("Sign-in page corners: "+error.GetType().Name);}
+        }
+        // Dark colour scheme for the login pages only; music pages keep their own.
+        private void SetScheme(bool dark)
+        {
+            try
+            {
+                var profile=View.CoreWebView2?.Profile;
+                if(profile!=null)profile.PreferredColorScheme=dark?CoreWebView2PreferredColorScheme.Dark:CoreWebView2PreferredColorScheme.Auto;
+            }
+            catch(Exception error){AppPaths.Log("Sign-in colour scheme: "+error.GetType().Name);}
+        }
         internal void SetAddress(string url)
         {
-            address.Text=Uri.TryCreate(url,UriKind.Absolute,out var uri)&&uri.Scheme=="https"?"Защищённое подключение  ·  "+uri.Host:"Музыкальный аккаунт";
+            bar.Host=Uri.TryCreate(url,UriKind.Absolute,out var uri)&&uri.Scheme==Uri.UriSchemeHttps?uri.Host:"";
         }
         internal void StartBackground()
         {
@@ -244,32 +271,27 @@ internal sealed class EmbeddedMusicHost : IDisposable
         }
         internal void ShowLogin(bool autoHide)
         {
-            AutoHideAfterLogin=autoHide;LoginVisible=true;bar.Visible=true;footer.Visible=true;
-            bar.Abyss=design()=="abyss";bar.Invalidate();
-            BackColor=footer.BackColor=bar.Abyss?Color.FromArgb(13,22,39):Color.FromArgb(25,18,32);
-            Padding=new(8,0,8,8);
+            AutoHideAfterLogin=autoHide;LoginVisible=true;
+            theme=LoginTheme.For(design());   // the design picked in Settings -> Appearance
+            bar.Theme=theme;footer.Theme=theme;
+            backdrop?.Dispose();backdrop=null;
+            BackColor=theme.Base;View.DefaultBackgroundColor=theme.Base;
+            SetScheme(true);
+            bar.Visible=true;footer.Visible=true;frame.Padding=new(16,2,16,0);
             ClientSize=new(1040,860);
             var area=Screen.FromPoint(Cursor.Position).WorkingArea;
             Size=new(Math.Min(Width,Math.Max(320,area.Width-32)),Math.Min(Height,Math.Max(320,area.Height-32)));
             Location=new(area.Left+(area.Width-Width)/2,area.Top+(area.Height-Height)/2);
             TopMost=true;Show();Activate();View.Focus();
+            RoundView();Invalidate(true);
         }
         internal void ReturnToBackground()
         {
             LoginVisible=false;AutoHideAfterLogin=false;TopMost=false;Location=new(-32000,-32000);
-            bar.Visible=false;footer.Visible=false;Padding=Padding.Empty;ClientSize=new(1280,900);
+            bar.Visible=false;footer.Visible=false;frame.Padding=Padding.Empty;ClientSize=new(1280,900);
+            var old=Region;Region=null;old?.Dispose();
+            RoundView();SetScheme(false);
         }
-        internal void Shutdown(){if(shutdown)return;shutdown=true;View.Dispose();Close();Dispose();}
-        private sealed class LoginHeader:Panel
-        {
-            internal bool Abyss;
-            protected override void OnPaintBackground(PaintEventArgs e)
-            {
-                using var gradient=new LinearGradientBrush(ClientRectangle,Abyss?Color.FromArgb(24,47,73):Color.FromArgb(65,31,61),Abyss?Color.FromArgb(22,25,48):Color.FromArgb(32,23,47),15f);
-                e.Graphics.FillRectangle(gradient,ClientRectangle);
-                using var accent=new Pen(Abyss?Color.FromArgb(92,161,231):Color.FromArgb(214,95,176),2);
-                e.Graphics.DrawLine(accent,24,Height-1,Width-24,Height-1);
-            }
-        }
+        internal void Shutdown(){if(shutdown)return;shutdown=true;backdrop?.Dispose();View.Dispose();Close();Dispose();}
     }
 }

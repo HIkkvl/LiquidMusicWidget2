@@ -26,3 +26,6 @@ body.lg-on .shell .heart{background:none}
 
 /* текст прямо на афише (вне стекла) */
 body.lg-on :is(.brand strong,h2,.bottom-hint,.brand-mark){text-shadow:0 0 10px rgba(0,0,0,.8),0 1px 2px rgba(0,0,0,.65)}
+
+/* читаемость текста на светлом фоне за стеклом */
+body.lg-on .shell :is(.player,.preferences,.footer,.genre){text-shadow:0 1px 5px rgba(18,4,24,.55)}

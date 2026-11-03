@@ -1,0 +1,47 @@
+/* Дизайн «Зерно»: монохром, размытые светлые потоки на чёрном, плёночное зерно, строки в [скобках] моноширинным шрифтом
+   (подключается из design.js, действует при body[data-design="grain"]). Префикс html body поднимает специфичность над правилами сервисов. */
+html body[data-design="grain"]{--blue:#f4f4f4;--indigo:#c4c4c4;--pink:#e2e2e2;--violet:#8e8e8e;--teal:#ffffff;--accent:linear-gradient(120deg,#ffffff,#b8b8b8);--glass-shadow:0 18px 44px rgba(0,0,0,.55);
+  --mono:"Roboto Mono","Cascadia Mono","SF Mono",Consolas,monospace;
+  font-family:"Helvetica Neue","Inter","Segoe UI Variable Display","Segoe UI",Arial,sans-serif}
+
+/* ---- фон: чёрный, с правого края вытекают размытые светлые потоки ---- */
+html body[data-design="grain"] .shell::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;filter:none;animation:none;will-change:auto;
+  background:
+    radial-gradient(60% 17% at 112% 10%,rgba(236,236,236,.92),rgba(150,150,150,.50) 46%,transparent 78%),
+    radial-gradient(54% 22% at 108% 40%,rgba(255,255,255,.96),rgba(176,176,176,.55) 48%,transparent 80%),
+    radial-gradient(58% 12% at 112% 66%,rgba(180,180,180,.55),transparent 74%),
+    radial-gradient(52% 9% at 110% 90%,rgba(120,120,120,.45),transparent 74%),
+    #0a0a0a;}
+
+/* ---- плёночное зерно поверх окна: статичный слой без режимов наложения (они заставляли пересчитывать стекло каждый кадр) ---- */
+html body[data-design="grain"]::after{content:'';position:fixed;inset:0;z-index:2147483000;pointer-events:none;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.7 -.62'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");background-size:240px 240px;opacity:.13;will-change:transform;contain:strict}
+html body[data-design="grain"][data-quality="low"]::after{opacity:.14}
+
+/* ---- типографика: мелкие подписи как в [СКОБКАХ] моноширинным ---- */
+html body[data-design="grain"] .track-meta .eyebrow{order:3;align-self:flex-start;margin-top:12px;padding:0;border-radius:0;background:none;box-shadow:none;
+  -webkit-backdrop-filter:none;backdrop-filter:none;font:11.5px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.82)}
+html body[data-design="grain"] .track-meta .eyebrow::before{content:'[ '}
+html body[data-design="grain"] .track-meta .eyebrow::after{content:' ]'}
+html body[data-design="grain"] :is(.mood-brand,.mood-local){font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}
+
+/* ---- кнопки: тонкий контур, играющая кнопка — сплошная белая ---- */
+html body[data-design="grain"] .shell .icon-button{border:1px solid rgba(255,255,255,.30);background:rgba(255,255,255,.04);box-shadow:none}
+html body[data-design="grain"] .shell .icon-button:hover{border-color:rgba(255,255,255,.65);background:rgba(255,255,255,.14);box-shadow:0 0 18px rgba(255,255,255,.18)}
+html body[data-design="grain"] .shell .play-button{border:0;color:#0a0a0a;background:#f4f4f4;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:0 0 30px rgba(255,255,255,.28),0 8px 22px rgba(0,0,0,.5)}
+html body[data-design="grain"] .shell .play-button svg{color:#0a0a0a}
+html body[data-design="grain"] .shell .play-button:hover{transform:scale(1.07);filter:none;background:#ffffff;box-shadow:0 0 42px rgba(255,255,255,.45),0 8px 22px rgba(0,0,0,.5)}
+html body[data-design="grain"] .progress-track>div{background:#f4f4f4;box-shadow:0 0 12px rgba(255,255,255,.55)}
+html body[data-design="grain"] .shell .genre.selected{color:#0a0a0a;background:#f1f1f1;box-shadow:none}
+html body[data-design="grain"] .screen-picker button.active,html body[data-design="grain"] .quality-tab.active{color:#0a0a0a;background:#f1f1f1;box-shadow:none}
+html body[data-design="grain"] .save-button{color:#0a0a0a;background:#f4f4f4;box-shadow:0 0 26px rgba(255,255,255,.2)}
+html body[data-design="grain"] .mood-btn.primary{color:#0a0a0a;background:#f1f1f1;box-shadow:0 0 20px rgba(255,255,255,.18)}
+html body[data-design="grain"] .mood-icon svg{stroke:#0a0a0a}
+
+/* ---- читаемость CSS-стекла (ползунок «Затемнение плашек» меняет --pd) ---- */
+html body[data-design="grain"] .settings-panel.glass,html body[data-design="grain"] .toast{background:linear-gradient(160deg,rgba(14,14,14,calc(var(--pd) * .92)),rgba(4,4,4,calc(var(--pd) * 1))),var(--glass-fill)}
+html body[data-design="grain"]:not(.lg-on) .shell .glass{background:linear-gradient(160deg,rgba(14,14,14,calc(var(--pd) * .62)),rgba(4,4,4,calc(var(--pd) * .72))),var(--glass-fill)}
+
+/* ---- строки списка («Моя волна»): простой CSS вместо шейдерного стекла ---- */
+html body[data-design="grain"] .shell .genre{background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.11);transition:background .2s,box-shadow .2s}
+html body[data-design="grain"] .shell .genre:hover{background:rgba(255,255,255,.085);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}

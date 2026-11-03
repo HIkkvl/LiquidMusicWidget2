@@ -64,7 +64,7 @@ internal sealed class Settings
         Value["quality"] ??= "high";
         Value["on_top"] ??= true;
     }
-    private static readonly string[] IslandPresets = ["aurora", "ocean", "sunset", "mint", "violet", "graphite", "abyss", "custom"];
+    private static readonly string[] IslandPresets = ["aurora", "ocean", "sunset", "mint", "violet", "graphite", "abyss", "neon", "grain", "custom"];
     /// <summary>Цветовая схема острова: известный пресет и три цвета «Свои» строго в формате #rrggbb (иначе значения по умолчанию).</summary>
     internal static JsonObject NormalizeIslandTheme(JsonNode? value)
     {
@@ -79,9 +79,9 @@ internal sealed class Settings
             ["custom"] = new JsonObject { ["dark"] = Hex(custom?["dark"], "#2b0a1d"), ["accent"] = Hex(custom?["accent"], "#ff5ea8"), ["light"] = Hex(custom?["light"], "#ffe4f1") }
         };
     }
-    /// <summary>Оформление виджета: «aurora» (по умолчанию) или «abyss».</summary>
+    /// <summary>Оформление виджета: «aurora» (по умолчанию), «abyss», «neon» или «grain».</summary>
     internal static string NormalizeDesign(JsonNode? value) =>
-        value is JsonValue v && v.TryGetValue<string>(out var name) && (name is "aurora" or "abyss") ? name : "aurora";
+        value is JsonValue v && v.TryGetValue<string>(out var name) && (name is "aurora" or "abyss" or "neon" or "grain") ? name : "aurora";
     /// <summary>Статус в Discord: включён по умолчанию, но работает только с Application ID из Discord Developer Portal.</summary>
     internal static JsonObject NormalizeDiscord(JsonNode? value)
     {

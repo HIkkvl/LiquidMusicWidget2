@@ -146,6 +146,8 @@ void main(){
     vec3 tn = uTint[i].rgb * uTintMul;
     if (uTintLum.a > 0.5) tn = dot(uTint[i].rgb, vec3(0.30, 0.59, 0.11)) * uTintLum.rgb;   // красный/розовый оттенок кнопок -> цвет дизайна
     g += tn * inner;
+    // мягкий потолок яркости интерьера: светлый рабочий стол или яркая палитра за стеклом не «выбеливают» плашку, текст остаётся читаемым
+    g *= mix(1.0, 1.0 / (1.0 + dot(g, vec3(0.30, 0.59, 0.11)) * 1.35), inner);
 
     // Френель + отражение комнаты (градиент + светлое «окно»), как у куба
     vec3 R = reflect(vec3(0.0, 0.0, -1.0), n3);
@@ -363,7 +365,8 @@ void main(){
       window.addEventListener('resize', boost);
       ['pointerdown', 'pointerup', 'wheel', 'keydown', 'transitionrun', 'animationstart'].forEach(name =>
         document.addEventListener(name, boost, {passive: true, capture: true}));
-      document.addEventListener('scroll', boost, {passive: true, capture: true});
+      // прокрутка списка идёт с частотой экрана: стекло рисуем каждый кадр, иначе плашки отстают от содержимого
+      document.addEventListener('scroll', () => { hurryUntil = performance.now() + 220; boost(); }, {passive: true, capture: true});
       document.addEventListener('pointermove', e => {
         target[0] = (e.clientX / Math.max(1, window.innerWidth) - 0.5) * 2;
         target[1] = (e.clientY / Math.max(1, window.innerHeight) - 0.5) * 2;

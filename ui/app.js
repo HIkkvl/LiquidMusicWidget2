@@ -475,6 +475,8 @@ function applyTheme(name){
 LiquidGlass.mount({
   canvas:$('lg-canvas'),root:document.querySelector('.shell'),palette:PALETTES.yandex,solid:true,
   bgAlpha:.62,glassAlpha:.84,aurora:.8,
+  // в дизайне «Зерно» строки списка — обычный CSS: легче для шейдера и без отставания при прокрутке
+  filter:el=>!(document.body.dataset.design==='grain'&&el.classList.contains('genre')),
   // bevel — ширина скоса кромки, strength — «толщина» стекла (сила преломления), dark — затемнение интерьера
   kinds:[
     {selector:'.shell',frame:true,bevel:46,strength:120,tint:[0,0,0]},   // кромка окна: линза, искажающая рабочий стол
