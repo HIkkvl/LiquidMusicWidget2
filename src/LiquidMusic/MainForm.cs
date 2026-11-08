@@ -17,6 +17,7 @@ internal sealed class MainForm : Form
     private readonly EmbeddedMusicHost music;
     private readonly DeepSeekAssistant assistant;
     private readonly HandoffServer handoff;
+    private readonly TelegramShare telegram;   // карточка трека в личного Telegram-бота
     private readonly RoomService room=new();   // совместное прослушивание: лидер управляет, гость слушает
     private readonly SemaphoreSlim roomGate=new(1,1);
     private RoomTrack? roomPending;
@@ -52,6 +53,7 @@ internal sealed class MainForm : Form
         discord.Configure(settings.Value["discord"]);
         handoff=new(HandoffSnapshotAsync,HandoffCommandAsync);
         room.TrackReceived+=OnRoomTrack;
+        telegram=new(settings);
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -133,6 +135,8 @@ internal sealed class MainForm : Form
             if(File.Exists(discordUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(discordUi));
             var roomUi=Path.Combine(AppContext.BaseDirectory,"ui","room-settings.js");   // вкладка «Комната»
             if(File.Exists(roomUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(roomUi));
+            var telegramUi=Path.Combine(AppContext.BaseDirectory,"ui","telegram-ui.js");   // кнопка и вкладка Telegram
+            if(File.Exists(telegramUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(telegramUi));
             view.CoreWebView2.Navigate("https://liquid.local/index.html");
             view.CoreWebView2.NavigationCompleted+=(_,_)=>PushWindowPosition();
             try{await island.StartAsync(environment);ApplyCapture();}catch(Exception e){AppPaths.Log("Island init: "+e);}
@@ -255,6 +259,9 @@ internal sealed class MainForm : Form
                 return new{ok=true,deepseek=assistant.Status()};
             case "get_handoff":return handoff.Status();
             case "get_room":return room.Status();
+            case "get_telegram":return telegram.Status();
+            case "set_telegram":return telegram.Configure(Arg(0) as JsonObject??new JsonObject());
+            case "send_telegram":await telegram.SendTrackAsync(State());return new{ok=true};
             case "room_create":{var created=await room.CreateAsync(Arg(0)?.GetValue<string>()??"");room.Publish(snapshot);return created;}
             case "room_join":roomKey="";return await room.JoinAsync(Arg(0)?.GetValue<string>()??"",Arg(1)?.GetValue<string>()??"");
             case "room_leave":await room.LeaveAsync();roomKey="";return new{ok=true};

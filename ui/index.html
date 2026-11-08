@@ -21,6 +21,7 @@
   <symbol id="i-play" viewBox="0 0 24 24"><path class="solid" d="m8 4 13 8-13 8z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect class="solid" x="6" y="4" width="4" height="16" rx="1.5"/><rect class="solid" x="15" y="4" width="4" height="16" rx="1.5"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="3"/></symbol>
+<symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 20a8 8 0 1 1 8-8"/><path d="M12 12l4-4"/><path d="M19 5l1-1"/></symbol>
   <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4Zm12-1a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
@@ -39,7 +40,7 @@
   <section class="player glass" aria-label="Музыкальный плеер">
     <div class="track"><div class="cover-wrap"><img id="cover" src="assets/cover.svg" alt="Обложка трека"><span class="cover-shine"></span></div><div class="track-meta"><button type="button" class="eyebrow" id="track-context" disabled>ВАША МУЗЫКА</button><h1 id="track-title">В ожидании музыки</h1><p id="track-artist">Включите любимый трек</p><span class="source-pill"><span></span>Яндекс Музыка</span></div><button id="like-button" class="icon-button heart" aria-label="Добавить в избранное" aria-pressed="false"><svg><use href="#i-heart"/></svg></button></div>
     <div class="timeline"><div class="progress-track" role="progressbar" aria-label="Прогресс трека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div><div class="times"><span id="position">0:00</span><span id="duration">0:00</span></div></div>
-    <div class="transport"><button class="icon-button secondary" id="stop-button" data-command="stop" aria-label="Остановить воспроизведение" title="Стоп"><svg><use href="#i-stop"/></svg></button><button class="icon-button" data-command="previous" aria-label="Предыдущий трек"><svg><use href="#i-prev"/></svg></button><button class="play-button" id="play-button" data-command="play_pause" aria-label="Воспроизвести"><svg><use href="#i-play"/></svg></button><button class="icon-button" data-command="next" aria-label="Следующий трек"><svg><use href="#i-next"/></svg></button><button class="icon-button secondary" id="keys-button" aria-label="Настроить горячие клавиши" title="Горячие клавиши"><svg><use href="#i-keyboard"/></svg></button></div>
+    <div class="transport"><button class="icon-button secondary" id="telegram-button" aria-label="Отправить трек в Telegram" title="Отправить трек в Telegram"><svg><use href="#i-telegram"/></svg></button><button class="icon-button" data-command="previous" aria-label="Предыдущий трек"><svg><use href="#i-prev"/></svg></button><button class="play-button" id="play-button" data-command="play_pause" aria-label="Воспроизвести"><svg><use href="#i-play"/></svg></button><button class="icon-button" data-command="next" aria-label="Следующий трек"><svg><use href="#i-next"/></svg></button><button class="icon-button secondary" id="keys-button" aria-label="Настроить горячие клавиши" title="Горячие клавиши"><svg><use href="#i-keyboard"/></svg></button></div>
   </section>
   <section class="voice-panel glass" aria-label="Голосовой помощник">
     <button type="button" class="icon-button" id="voice-button" aria-label="Начать голосовую команду" aria-pressed="false" title="Голосовая команда · Num3"><svg><use href="#i-mic"/></svg></button>
@@ -117,6 +118,7 @@
       <button type="button" class="settings-tab" id="settings-tab-discord" role="tab" aria-controls="settings-discord" aria-selected="false" tabindex="-1" data-settings-tab="discord">Discord</button>
       <button type="button" class="settings-tab" id="settings-tab-mood" role="tab" aria-controls="settings-mood" aria-selected="false" tabindex="-1" data-settings-tab="mood">Liquid Mood</button>
 <button type="button" class="settings-tab" id="settings-tab-room" role="tab" aria-controls="settings-room" aria-selected="false" tabindex="-1" data-settings-tab="room">Комната</button>
+<button type="button" class="settings-tab" id="settings-tab-telegram" role="tab" aria-controls="settings-telegram" aria-selected="false" tabindex="-1" data-settings-tab="telegram">Telegram</button>
     </div>
     <div class="settings-pages">
       <section class="settings-tabpanel" id="settings-controls" role="tabpanel" aria-labelledby="settings-tab-controls" tabindex="0">
@@ -184,6 +186,9 @@
 
       </section>
 <section class="settings-tabpanel" id="settings-room" role="tabpanel" aria-labelledby="settings-tab-room" tabindex="0" hidden>
+
+      </section>
+<section class="settings-tabpanel" id="settings-telegram" role="tabpanel" aria-labelledby="settings-tab-telegram" tabindex="0" hidden>
 
       </section>
       <section class="settings-tabpanel" id="settings-mood" role="tabpanel" aria-labelledby="settings-tab-mood" tabindex="0" hidden>
