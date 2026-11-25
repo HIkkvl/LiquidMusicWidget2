@@ -33,7 +33,8 @@ internal sealed class Settings
     public static readonly Dictionary<string, string> Actions = new()
     {
         ["toggle"]="Показать / скрыть", ["next"]="Следующий трек", ["previous"]="Предыдущий трек",
-        ["play_pause"]="Пауза / продолжить", ["stop"]="Остановить воспроизведение", ["like"]="Лайк / убрать лайк", ["voice"]="Голосовая команда"
+        ["play_pause"]="Пауза / продолжить", ["stop"]="Остановить воспроизведение", ["like"]="Лайк / убрать лайк", ["voice"]="Голосовая команда",
+        ["search"]="Поиск трека (в окне виджета)"
     };
     private readonly string path;
     public JsonObject Value { get; private set; }
@@ -102,6 +103,8 @@ internal sealed class Settings
         var result = new JsonObject();
         foreach (var (action,key) in new[] {("toggle","Num0"),("next","Num6"),("previous","Num4"),("play_pause","Num5"),("stop","Num2"),("like","Num1"),("voice","Num3")})
             result[action] = JsonSerializer.SerializeToNode(new {key,ctrl=false,alt=false,shift=false});
+        // Поиск трека работает только в окне виджета, поэтому Ctrl+F не перехватывается у других программ
+        result["search"] = JsonSerializer.SerializeToNode(new {key="F",ctrl=true,alt=false,shift=false});
         return result;
     }
     public void Save()

@@ -12,7 +12,6 @@ namespace LiquidMusic;
 /// </summary>
 internal sealed class TelegramShare(Settings settings)
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly Regex TokenPattern = new(@"^\d{6,12}:[A-Za-z0-9_-]{30,50}$", RegexOptions.Compiled);
     private static readonly Regex ChatPattern = new(@"^-?\d{5,15}$", RegexOptions.Compiled);
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -25,6 +24,9 @@ internal sealed class TelegramShare(Settings settings)
         try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(TokenFile), null, DataProtectionScope.CurrentUser)); }
         catch (Exception error) when (error is IOException or CryptographicException or UnauthorizedAccessException) { return null; }
     }
+
+    internal string? BotToken() => ReadToken();
+    internal string BotChat() => ChatId;
 
     internal JsonObject Status()
     {
@@ -109,14 +111,14 @@ internal sealed class TelegramShare(Settings settings)
         try
         {
             using var content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
-            using var response = await Http.PostAsync("https://api.telegram.org/bot" + token + "/" + method, content);
+            using var response = await TelegramNet.Client.PostAsync("https://api.telegram.org/bot" + token + "/" + method, content);
             var answer = JsonNode.Parse(await response.Content.ReadAsStringAsync()) as JsonObject;
             if (answer?["ok"]?.GetValue<bool>() == true) return null;
             description = answer?["description"]?.GetValue<string>() ?? "HTTP " + (int)response.StatusCode;
         }
         // Сообщения этих исключений содержат адрес запроса с токеном: наружу и в журнал их не отдаём.
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { description = "Не удалось связаться с Telegram. Проверьте интернет."; }
+        { description = "Не удалось связаться с Telegram. Проверьте интернет или укажите прокси в настройках."; }
         if (!throwOnFailure) return description;
         if (description.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)) description = "Telegram не принял токен бота. Проверьте токен.";
         else if (description.Contains("chat not found", StringComparison.OrdinalIgnoreCase) || description.Contains("bot can't initiate", StringComparison.OrdinalIgnoreCase) || description.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))

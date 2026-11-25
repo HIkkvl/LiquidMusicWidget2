@@ -117,6 +117,31 @@ internal sealed partial class BrowserController : IAsyncDisposable
         }
         catch(Exception error){throw new InvalidOperationException("Подключение к "+info.Name+" временно недоступно. Настройка сохранена. Запускайте браузер через настроенный ярлык или приложение.",error);}
     }
+    // Поиск «Мне нравится» живёт в самом приложении, а не в BrowserScripts.js: работает, даже если рядом лежит старый файл скриптов.
+    private const string LikedScript = """
+        step=>{
+          const player='[class*="PlayerBar"]';
+          const visible=el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';};
+          const enabled=el=>!el.hasAttribute('disabled')&&el.getAttribute('aria-disabled')!=='true';
+          const label=el=>[el.getAttribute('aria-label'),el.getAttribute('title')].filter(Boolean).join(' ');
+          const outside=el=>!el.closest(player)&&visible(el)&&enabled(el);
+          document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+          if(step==='open'){
+            const likedHref=/\/(?:collection\/tracks|users\/[^/]+\/playlists\/3|playlists\/(?:3|lk\.[^/?#]+))(?:[/?#]|$)/i;
+            const cards=[...document.querySelectorAll('a[href],button,[role="button"],[role="link"]')].filter(outside);
+            const hit=cards.find(el=>/^\s*мне нравится(?:\s|$)/i.test((el.innerText||'').trim())&&/плейлист/i.test(el.innerText||''))
+              ||cards.find(el=>likedHref.test(el.getAttribute('href')||''));
+            if(!hit)return false;
+            hit.setAttribute('data-liquid-control','liked-open');return true;
+          }
+          const root=document.querySelector('main')||document.body;
+          const play=[...root.querySelectorAll('button,[role="button"]')].filter(outside).find(el=>
+            /слушать|воспроизвести|воспроизведение|включить|играть|продолжить|\bplay\b/i.test(label(el)+' '+(el.innerText||''))
+            &&!/нравится|пауза|pause|следующ|предыдущ|меню|menu/i.test(label(el)));
+          if(!play)return false;
+          play.setAttribute('data-liquid-control','liked-play');return true;
+        }
+        """;
     private async Task<IPage> PageAsync(string service,bool create)
     {
         if(!MusicServices.Supported(service))throw new ArgumentException("Неизвестный музыкальный сервис.");
@@ -309,6 +334,35 @@ internal sealed partial class BrowserController : IAsyncDisposable
                 var playlistState=await StartSpotifyPlaylistAsync(page,script,playlistUrl,knownPlaylist?["title"]?.GetValue<string>());
                 SpotifyPlaylists.UpdateDetails(settings,playlistAccount,playlistUrl,playlistState["spotify_playlist_title"]?.GetValue<string>()??"",playlistState["spotify_playlist_artwork"]?.GetValue<string>()??"");
                 return playlistState;
+            }
+            if(action=="liked")
+            {
+                if(service!="yandex")throw new InvalidOperationException("«Мне нравится» доступно в Яндекс Музыке.");
+                var likedBefore=await ReadAsync(page,service);
+                async Task<bool> LikedTarget(string mode)=>await page.EvaluateAsync<bool>(LikedScript,mode);
+                var likedFound=await LikedTarget("open");
+                if(!likedFound)
+                {
+                    // Карточка есть не на каждой странице: открываем коллекцию и ищем там.
+                    await page.GotoAsync(new Uri(page.Url).GetLeftPart(UriPartial.Authority)+"/collection",new(){WaitUntil=WaitUntilState.DOMContentLoaded,Timeout=25000});
+                    for(var step=0;step<30&&!likedFound;step++){await Task.Delay(250);likedFound=await LikedTarget("open");}
+                }
+                if(!likedFound||!await ClickControlAsync(page,"liked-open"))throw new InvalidOperationException("Не нашёл плейлист «Мне нравится» на сайте. Войдите в Яндекс Музыку в окне сервиса и повторите.");
+                var likedStarted=false;
+                for(var step=0;step<40&&!likedStarted;step++)
+                {
+                    await Task.Delay(250);
+                    if(await LikedTarget("play"))likedStarted=await ClickControlAsync(page,"liked-play");
+                }
+                if(!likedStarted)throw new InvalidOperationException("Плейлист открылся, но кнопка запуска не найдена. Нажмите «Слушать» в окне сервиса.");
+                for(var step=0;step<40;step++)
+                {
+                    await Task.Delay(250);
+                    var likedState=await ReadAsync(page,service);
+                    var likedChanged=new[]{"title","artist","track_url"}.Any(field=>likedState[field]?.ToJsonString()!=likedBefore[field]?.ToJsonString());
+                    if(likedState["playing"]?.GetValue<bool>()==true&&(likedChanged||likedBefore["playing"]?.GetValue<bool>()!=true)){likedState["active_wave"]=null;return likedState;}
+                }
+                throw new InvalidOperationException("Плейлист открыт, но воспроизведение не началось.");
             }
             if(action=="wave_reset")
             {

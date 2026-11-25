@@ -52,6 +52,8 @@ internal sealed class GlobalHotkeys(nint window) : IDisposable
             uint mods = (binding["ctrl"]?.GetValue<bool>()==true?2u:0) | (binding["alt"]?.GetValue<bool>()==true?1u:0) | (binding["shift"]?.GetValue<bool>()==true?4u:0);
             if(!wanted.TryAdd((mods,vk),action)) throw new ArgumentException("Одна комбинация назначена нескольким действиям");
         }
+        // «Поиск трека» живёт внутри окна виджета: комбинация проверяется на дубли, но глобально не регистрируется.
+        foreach(var combo in wanted.Where(pair=>pair.Value=="search").Select(pair=>pair.Key).ToList())wanted.Remove(combo);
         return wanted;
     }
     public void Apply(JsonObject bindings)

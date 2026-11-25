@@ -395,6 +395,25 @@
     };
   }
   document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+  // «Мне нравится» (плейлист любимых треков): карточка на странице и кнопка запуска на странице плейлиста.
+  if(service==='yandex'&&(action==='liked_target'||action==='liked_play_target')){
+    document.querySelectorAll('[data-liquid-control]').forEach(el=>el.removeAttribute('data-liquid-control'));
+    const outside=el=>!el.closest(playerSelector)&&visible(el)&&enabled(el);
+    if(action==='liked_target'){
+      const likedHref=/\/(?:collection\/tracks|users\/[^/]+\/playlists\/3|playlists\/(?:3|lk\.[^/?#]+))(?:[/?#]|$)/i;
+      const cards=[...document.querySelectorAll('a[href],button,[role="button"],[role="link"]')].filter(outside);
+      // Сначала пункт «Мне нравится / Плейлист» в левом меню (он есть на любой странице), потом ссылка на коллекцию.
+      const hit=cards.find(el=>/^\s*мне нравится(?:\s|$)/i.test((el.innerText||'').trim())&&/плейлист/i.test(el.innerText||''))
+        ||cards.find(el=>likedHref.test(el.getAttribute('href')||''));
+      if(!hit)return {found:false};
+      hit.setAttribute('data-liquid-control','liked-open');return {found:true};
+    }
+    const root=document.querySelector('main')||document.body;
+    const play=[...root.querySelectorAll('button,[role="button"]')].filter(outside).find(el=>
+      /слушать|воспроизвести|воспроизведение|включить|играть|продолжить|\bplay\b/i.test(label(el)+' '+(el.innerText||''))&&!/нравится|пауза|pause|следующ|предыдущ|меню|menu/i.test(label(el)));
+    if(!play)return {found:false};
+    play.setAttribute('data-liquid-control','liked-play');return {found:true};
+  }
   if(action==='volume') {
     if(volumeInput){const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(volumeInput,String(Number(volumeInput.min||0)+volume*(Number(volumeInput.max||100)-Number(volumeInput.min||0))));volumeInput.dispatchEvent(new Event('input',{bubbles:true}));volumeInput.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true};}
     if(media){media.volume=volume;return {ok:true};}

@@ -17,6 +17,7 @@ internal sealed class MainForm : Form
     private readonly EmbeddedMusicHost music;
     private readonly DeepSeekAssistant assistant;
     private readonly HandoffServer handoff;
+    private readonly TelegramBot telegramBot;
     private readonly TelegramShare telegram;   // карточка трека в личного Telegram-бота
     private readonly RoomService room=new();   // совместное прослушивание: лидер управляет, гость слушает
     private readonly SemaphoreSlim roomGate=new(1,1);
@@ -54,6 +55,8 @@ internal sealed class MainForm : Form
         handoff=new(HandoffSnapshotAsync,HandoffCommandAsync);
         room.TrackReceived+=OnRoomTrack;
         telegram=new(settings);
+        try{TelegramNet.SetProxy(settings.Value["telegram_proxy"]?.GetValue<string>());}catch(Exception e){AppPaths.Log(e);}
+        telegramBot=new(telegram.BotToken,telegram.BotChat,TelegramStateAsync,TelegramControlAsync);
         uiTest=test;
         if(uiTest)_=Task.Run(async()=>{await Task.Delay(30000);if(!quitting&&!IsDisposed&&IsHandleCreated)BeginInvoke(()=>{File.WriteAllText(Path.Combine(AppPaths.Logs,"ui-selftest.json"),"{\"ok\":false,\"error\":\"WebView initialization timeout\"}");Environment.ExitCode=1;Quit();});});
         startHidden=hidden;
@@ -137,12 +140,15 @@ internal sealed class MainForm : Form
             if(File.Exists(roomUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(roomUi));
             var telegramUi=Path.Combine(AppContext.BaseDirectory,"ui","telegram-ui.js");   // кнопка и вкладка Telegram
             if(File.Exists(telegramUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(telegramUi));
+            var searchUi=Path.Combine(AppContext.BaseDirectory,"ui","track-search.js");   // поиск трека по Ctrl+F
+            if(File.Exists(searchUi))await view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(searchUi));
             view.CoreWebView2.Navigate("https://liquid.local/index.html");
             view.CoreWebView2.NavigationCompleted+=(_,_)=>PushWindowPosition();
             try{await island.StartAsync(environment);ApplyCapture();}catch(Exception e){AppPaths.Log("Island init: "+e);}
             if(!uiTest)await browser.InitializeConnectionAsync();
             if(!uiTest)try{await handoff.StartAsync();}catch(Exception e){AppPaths.Log("Handoff server: "+e);}
             poll.Start();wheelTimer.Start();islandTimer.Start();
+            if(!uiTest&&settings.Value["telegram_control"]?.GetValue<bool>()==true)telegramBot.Start();
             await PollAsync();
             if(!uiTest)File.WriteAllText(Path.Combine(AppPaths.Logs,"native-startup.json"),JsonSerializer.Serialize(new{ok=true,hotkeyError,voiceKey=settings.Value["bindings"]?["voice"]?["key"]?.GetValue<string>(),browserConnected=snapshot["connected"]?.GetValue<bool>()==true,browser=browser.Status()}));
             if(uiTest)_=UiTestAsync();
@@ -261,6 +267,19 @@ internal sealed class MainForm : Form
             case "get_room":return room.Status();
             case "get_telegram":return telegram.Status();
             case "set_telegram":return telegram.Configure(Arg(0) as JsonObject??new JsonObject());
+            case "get_telegram_control":
+                return new{ok=true,enabled=settings.Value["telegram_control"]?.GetValue<bool>()==true,proxy=settings.Value["telegram_proxy"]?.GetValue<string>()??"",status=telegramBot.Status()};
+            case "set_telegram_proxy":
+                var telegramProxy=TelegramNet.Normalize(Arg(0)?.GetValue<string>());
+                settings.Value["telegram_proxy"]=telegramProxy;settings.Save();TelegramNet.SetProxy(telegramProxy);
+                return new{ok=true,enabled=settings.Value["telegram_control"]?.GetValue<bool>()==true,proxy=telegramProxy,status=telegramBot.Status()};
+            case "set_telegram_control":
+                var telegramControl=Arg(0)?.GetValue<bool>()??false;
+                if(telegramControl&&telegram.Status()["configured"]?.GetValue<bool>()!=true)
+                    throw new InvalidOperationException("Сначала сохраните токен бота и Chat ID.");
+                settings.Value["telegram_control"]=telegramControl;settings.Save();
+                if(telegramControl)telegramBot.Start();else await telegramBot.StopAsync();
+                return new{ok=true,enabled=telegramControl,status=telegramBot.Status()};
             case "send_telegram":await telegram.SendTrackAsync(State());return new{ok=true};
             case "room_create":{var created=await room.CreateAsync(Arg(0)?.GetValue<string>()??"");room.Publish(snapshot);return created;}
             case "room_join":roomKey="";return await room.JoinAsync(Arg(0)?.GetValue<string>()??"",Arg(1)?.GetValue<string>()??"");
@@ -478,6 +497,25 @@ internal sealed class MainForm : Form
         if(action is not("volume" or "genre" or "open"))Notify(action,result);
     }
     // Гость только слушает: пауза, пропуск, выбор жанров и голосовые команды доступны лидеру. Громкость и лайк остаются у гостя.
+    private async Task<JsonObject> TelegramStateAsync()
+    {
+        JsonObject? state=null;
+        await OnUiAsync(()=>{state=State();return Task.CompletedTask;});
+        return state!;
+    }
+    private async Task<JsonObject> TelegramControlAsync(string action,string? query,double? volume)
+    {
+        JsonObject? result=null;
+        await OnUiAsync(async()=>
+        {
+            RoomGuard(action);
+            var service=settings.Service;
+            result=await browser.CommandAsync(service,action,query,volume);
+            UpdatePlayback(service,result);
+            if(action is not("volume" or "genre" or "open"))Notify(action,result);
+        });
+        return result!;
+    }
     private void RoomGuard(string action)
     {
         if(room.Role==RoomRole.Guest&&action is not("volume" or "like"))
@@ -629,7 +667,7 @@ internal sealed class MainForm : Form
     {
         if(quitting)return;quitting=true;lifetime.Cancel();poll.Stop();wheelTimer.Stop();islandTimer.Stop();
         voice.Dispose();assistant.Dispose();hotkeys?.Dispose();wheel?.Dispose();showWait?.Unregister(null);showSignal.Dispose();tray.Visible=false;tray.Dispose();popup.Dispose();island.Dispose();
-        await discord.DisposeAsync();await room.DisposeAsync();await handoff.DisposeAsync();await browser.DisposeAsync();Close();Application.Exit();
+        await telegramBot.DisposeAsync();await discord.DisposeAsync();await room.DisposeAsync();await handoff.DisposeAsync();await browser.DisposeAsync();Close();Application.Exit();
     }
 }
 
